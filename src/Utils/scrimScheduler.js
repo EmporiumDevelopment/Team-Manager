@@ -72,7 +72,7 @@ export async function sendScrimEmbed(client) {
             const embedTitle = (titleRows.length > 0 && titleRows[0].embed_title) ? titleRows[0].embed_title : "Scrim Availability";
 
             const [roleRows] = await db.execute(`SELECT role_id FROM scrim_settings WHERE guild_id = ?`, [guild_id]);
-            const roleId = (roleRows.length > 0 && roleRows[0].role_id) ? titleRows[0].role_id : null;
+            const roleId = (roleRows.length > 0 && roleRows[0].role_id) ? roleRows[0].role_id : null;
 
             const roleMention = roleId ? `<@&${roleId}>` : "";
 
