@@ -12,11 +12,11 @@ class CommandHandler {
     }
 
     async loadCommands() {
-        const commandFiles = fs.readdirSync(path.join(__dirname))
+        const commandFiles = fs.readdirSync(path.join(__dirname, "../commands"))
             .filter(file => file.endsWith('.js'));
 
         for (const file of commandFiles) {
-            const commandPath = path.join(__dirname, file);
+            const commandPath = path.join(__dirname, "../commands", file);
             const command = await import(`file://${commandPath}`);
 
             if (command.default && command.default.data) {
@@ -41,7 +41,7 @@ class CommandHandler {
         }
 
         try {
-            await command.execute(interaction);
+            await command.execute(interaction, this);
         } catch (error) {
             console.error(`Error executing command ${interaction.commandName}:`, error);
         }

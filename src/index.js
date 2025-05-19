@@ -2,9 +2,9 @@ import { Client, Events, GatewayIntentBits } from 'discord.js';
 import dotenv from 'dotenv';
 import { REST } from '@discordjs/rest';
 import { Routes } from 'discord-api-types/v9';
-import { handleReactionAdd, handleReactionRemove } from "./events/ScrimReactions.js";
+import { handleReactionAdd, handleReactionRemove } from "./handlers/ScrimReactions.js";
 import db from './database.js';
-import CommandHandler from './commands/CommandHandler.js';
+import CommandHandler from './handlers/commandHandler.js';
 import { scheduleScrims } from './Utils/scrimScheduler.js';
 import { sendLogEmbed } from './Utils/logger.js';
 
@@ -167,7 +167,7 @@ async function setup() {
         if(guildCommands.length > 0) {
             console.log('Registering guild commands to test server...');
 
-            // Register guild commands
+            // Register development commands
             await rest.put(
                 Routes.applicationGuildCommands(process.env.CLIENT_ID, testServerId),
                 { body: guildCommands }
