@@ -28,9 +28,15 @@ client.once(Events.ClientReady, async () => {
 
     console.log(`Bot is online!`);
 
-    const guilds = [...client.guilds.cache.values()];
+    const guilds = client.guilds.cache.map(guild => guild.id);
 
     for (const guildId of guilds) {
+
+        if (!guildId) {
+            console.error("Error: guildId is undefined.");
+            continue;
+        }
+
         const [scrimRows] = await db.execute(`
             SELECT scrim_message_id FROM channels WHERE guild_id = ?
         `, [guildId]);
@@ -39,15 +45,33 @@ client.once(Events.ClientReady, async () => {
             SELECT channel_id FROM scrim_settings WHERE guild_id = ?
         `, [guildId]);
 
-        // cache scrim mesage so it tracks interactions on restart
-        if (scrimRows.length && scrimRows[0].scrim_message_id && channelRows.length && channelRows[0].channel_id) {
-            try {
-                const channel = await client.channels.fetch(channelRows[0].scrim_channel_id);
+        if (!channelRows.length || !channelRows[0].channel_id) {
+            console.error(`Skipping guild: Missing scrim channel ID for guild ${guildId}`);
+            continue;
+        }
 
-                await channel.messages.fetch(scrimRows[0].scrim_message_id);
-            } catch (error) {
-                console.log(`Failed to fetch scrim message for guild ${guildId}:`, error);
+        try {
+            const channel = await client.channels.fetch(channelRows[0].channel_id);
+
+            if(!channel) {
+                console.error(`Skipping guild: Channel not found for guild ${guildId}`);
+                continue;
             }
+
+            if (!scrimRows.length || !scrimRows[0].scrim_message_id) {
+                console.log(`Skipping guild ${guildId}: No scrim message stored.`);
+                continue;
+            }
+
+            const message = channel.messages.fetch(scrimRows[0].scrim_message_id).catch(() => null);
+
+            if (!message) {
+                console.log(`Skipping guild ${guildId}: Scrim message no longer exists.`);
+                continue;
+            }
+
+        } catch (error) {
+            console.log(`Failed to fetch scrim message for guild ${guildId}:`, error);
         }
     }
 

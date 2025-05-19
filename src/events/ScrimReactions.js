@@ -80,17 +80,16 @@ export async function handleReactionRemove(reaction, user) {
         return;
     }
 
+    // Fetch the emoji map from the database
     const emojiMap = await getScrimEmojiMap(message.guild.id);
     if (!emojiMap) {
         console.log(`Emoji Map missing for server: ${serverName} ID: ${guildId}`);
         return;
     }
 
+    // Check if the emoji is in the map
     const emojiKey = reaction.emoji.id ? reaction.emoji.id : reaction.emoji.toString();
-    if (!emojiMap[emojiKey]) {
-        console.log(`Emoji not found in emojiMap: ${emojiKey} for server: ${serverName} ID: ${guildId}`);
-        return;
-    }
+    if (!emojiMap[emojiKey]) return;
 
     // Remove the user's display name from the list
     const updatedFields = embed.fields.map(field =>
@@ -112,6 +111,7 @@ export async function handleReactionRemove(reaction, user) {
         if (!field.value.trim()) field.value = "No players";
     });
 
+    // Update the embed with the new fields
     const updatedEmbed = new EmbedBuilder(embed).setFields(updatedFields);
 
     await message.edit({ embeds: [updatedEmbed] });

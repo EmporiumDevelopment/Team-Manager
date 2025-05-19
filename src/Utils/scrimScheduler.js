@@ -1,10 +1,11 @@
-import db from "../database.js";
 import cron from "node-cron";
+import db from "../database.js";
 import { EmbedBuilder } from "discord.js";
 
-const TIMEZONE = "Europe/London"; // Adjusts dynamically for BST/GMT
+const TIMEZONE = "Europe/London"; // Adjust if necessary
 
-export function scheduleScrims(client) { // Pass the bot client when calling this
+export function scheduleScrims(client) {
+
     if (!client) {
         console.error("Error: Bot client is undefined. Cannot schedule scrims.");
         return;
@@ -37,11 +38,23 @@ export function scheduleScrims(client) { // Pass the bot client when calling thi
         timezone: TIMEZONE
     });
 
-    // 🔹 Send Scrim Availability Embed at 7 AM for Every Server
     cron.schedule('0 7 * * *', async () => {
         console.log("Starting scheduled scrim embed posting...");
 
-        const [guildRows] = await db.execute(`SELECT guild_id, channel_id FROM scrim_settings`);
+        this.sendScrimEmbed(client);
+    }, {
+        timezone: TIMEZONE
+    });
+}
+
+export async function sendScrimEmbed(client) {
+
+    if (!client) {
+        console.error("Error: Bot client is undefined. Cannot send scrim embed.");
+        return;
+    }
+
+    const [guildRows] = await db.execute(`SELECT guild_id, channel_id FROM scrim_settings`);
         
         guildRows.forEach(async ({ guild_id, channel_id }) => {
             const guild = await client.guilds.fetch(guild_id).catch(() => null);
@@ -59,7 +72,7 @@ export function scheduleScrims(client) { // Pass the bot client when calling thi
             const embedTitle = (titleRows.length > 0 && titleRows[0].embed_title) ? titleRows[0].embed_title : "Scrim Availability";
 
             const [roleRows] = await db.execute(`SELECT role_id FROM scrim_settings WHERE guild_id = ?`, [guild_id]);
-            const roleId = (roleRows.length > 0 && roleRows[0].role_id) ? roleRows[0].role_id : null;
+            const roleId = (roleRows.length > 0 && roleRows[0].role_id) ? titleRows[0].role_id : null;
 
             const roleMention = roleId ? `<@&${roleId}>` : "";
 
@@ -94,7 +107,4 @@ export function scheduleScrims(client) { // Pass the bot client when calling thi
                 console.error(`[${guild.name} | ${guild.id}] Error sending scrim embed:`, error);
             }
         });
-    }, {
-        timezone: TIMEZONE
-    });
 }

@@ -43,6 +43,7 @@ async function initializeDatabase() {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
+        // Create `roster_settings` table
         await db.execute(`CREATE TABLE IF NOT EXISTS roster_settings (
             guild_id VARCHAR(255) PRIMARY KEY,
             owner_emoji VARCHAR(50) DEFAULT '',
@@ -66,6 +67,7 @@ async function initializeDatabase() {
             );
         `);
 
+        // Create `scrim_settings` table
         await db.execute(`
             CREATE TABLE IF NOT EXISTS scrim_settings (
                 guild_id VARCHAR(255) PRIMARY KEY,
@@ -78,6 +80,7 @@ async function initializeDatabase() {
             );
         `);
 
+        // Create `log_settings` table
         await db.execute(`
             CREATE TABLE IF NOT EXISTS log_settings (
             guild_id VARCHAR(255) PRIMARY KEY,

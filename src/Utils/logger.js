@@ -4,12 +4,16 @@ import client from "../index.js";
 import colourMap from "./colourMap.js";
 
 export async function sendLogEmbed(guildId, logMessage, action = "default") {
-    try {
 
-        if (!guildId || typeof guildId !== "string") {
-            console.error("Error: guildId is invalid or missing.");
-            return;
-        }
+    if (!guildId || typeof guildId !== "string") {
+        console.error("Error: guildId is invalid or missing.");
+        return;
+    }
+
+    const guild = (await client.guilds.fetch(guildId)).publicUpdatesChannel(() => null);
+    const serverName = guild ? guild.name : "Unknown Server";
+
+    try {
 
         // 🔹 Fetch stored log channel ID
         const [logRows] = await db.execute(`
@@ -17,7 +21,7 @@ export async function sendLogEmbed(guildId, logMessage, action = "default") {
         `, [guildId]);
 
         if (!logRows.length || !logRows[0].channel_id) {
-            console.log("Log channel not set—skipping log embed.");
+            console.log(`Log channel not set, skipping log for server: ${serverName} ID: ${guildId}`);
             return;
         }
 
@@ -25,7 +29,7 @@ export async function sendLogEmbed(guildId, logMessage, action = "default") {
 
         const logChannel = await client.channels.fetch(logChannelId);
         if (!logChannel) {
-            console.log("Log channel not found on Discord—skipping embed.");
+            console.log(`Log channel not found for server: ${serverName} ID: ${guildId}`);
             return;
         }
 
@@ -39,6 +43,6 @@ export async function sendLogEmbed(guildId, logMessage, action = "default") {
         await logChannel.send({ embeds: [logEmbed] });
 
     } catch (error) {
-        console.error("Error sending log embed:", error);
+        console.error(`Error sending log embed for server: ${serverName} ID: ${guildId}`, error);
     }
 }
