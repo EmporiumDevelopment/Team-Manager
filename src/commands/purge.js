@@ -35,5 +35,6 @@ export default {
                 ephemeral: true 
             });
         }
-    }
+    },
+    development: false
 };

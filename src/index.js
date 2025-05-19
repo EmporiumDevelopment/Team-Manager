@@ -11,6 +11,7 @@ import { sendLogEmbed } from './Utils/logger.js';
 dotenv.config({ path: './src/.env' });
 
 const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+const testServerId = process.env.TEST_SERVER_ID;
 
 const client = new Client({
     intents: [
@@ -138,18 +139,42 @@ async function setup() {
 
     const commands = [...commandHandler.commands.values()]
     .filter(cmd => cmd.data && cmd.data.name)
-    .map(cmd => cmd.data.toJSON());
+    .map(cmd => ({
+        data: cmd.data.toJSON(),
+        development: cmd.development || false
+    }));
 
     try {
         console.log('Registering global commands...');
-        // Ensure bot registers all actual commands from CommandHandler
-        await rest.put(
-            Routes.applicationCommands(process.env.CLIENT_ID),
-            { body: commands }
-        );
 
+        const globalCommands = commands
+            .filter(cmd => !cmd.development)
+            .map(cmd => cmd.data);
+
+        // Register global commands
+        if(globalCommands.length > 0) {
+            // Register global commands
+            await rest.put(
+                Routes.applicationCommands(process.env.CLIENT_ID),
+                { body: globalCommands }
+            );
+        }
+
+        const guildCommands = commands
+            .filter(cmd => cmd.development)
+            .map(cmd => cmd.data);
+
+        if(guildCommands.length > 0) {
+            console.log('Registering guild commands to test server...');
+
+            // Register guild commands
+            await rest.put(
+                Routes.applicationGuildCommands(process.env.CLIENT_ID, testServerId),
+                { body: guildCommands }
+            );
+        }
     } catch (error) {
-        console.error('Guild Command Registration Failed:', error);
+        console.error('Command Registration Failed:', error);
     }
 
     // Ensure bot logs in outside of try/catch block

@@ -220,5 +220,7 @@ export default {
             console.error(`Failed to save scrim emojis for server: ${serverName} ID: ${guildId}:`, error);
             await interaction.reply({ content: "There was an error setting scrim emojis.", flags: MessageFlags.Ephemeral });
         }
-    }
+    },
+
+    development: false
 };

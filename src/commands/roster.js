@@ -570,5 +570,7 @@ export default {
                 console.error(`Failed to set roster emojis for server: ${serverName} ID: ${guildId}:`, error);
                 return interaction.reply({ content: "An error occurred while setting the roster emojis.", flag: MessageFlags.Ephemeral });
             }
-        }
+        },
+
+        devlopment: false
 };

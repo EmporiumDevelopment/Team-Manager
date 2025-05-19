@@ -99,5 +99,6 @@ export default {
             console.error(`Failed to set logs title for server: ${serverName} ID: ${guildId}:`, error);
             return interaction.reply({ content: "An error occurred while setting the logs title.", flag: MessageFlags.Ephemeral });
         }
-    }
+    },
+    development: false
 };
