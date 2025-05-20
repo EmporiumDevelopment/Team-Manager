@@ -40,8 +40,8 @@ export default {
             embed.addFields({ name: `${commandName}`, value: `${cmd.data.description}\n${subcommands}` });
         });
 
-        await interaction.reply({ embeds: [embed], ephemeral: true });
+        await interaction.reply({ embeds: [embed] });
     },
 
-    development: false
+    development: true
 };

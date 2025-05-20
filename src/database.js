@@ -91,6 +91,16 @@ async function initializeDatabase() {
             );
         `);
 
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS announcement_settings (
+            guild_id VARCHAR(50) NOT NULL,
+            type ENUM('public', 'team', 'clan') NOT NULL,
+            channel_id VARCHAR(50) NOT NULL,
+            role_id VARCHAR(50) NULL, -- Optional role mention
+            PRIMARY KEY (guild_id, type)
+            );
+        `);
+
         return db;
     } catch (error) {
         console.error("Database connection failed:", error);

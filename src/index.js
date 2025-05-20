@@ -7,6 +7,7 @@ import db from './database.js';
 import CommandHandler from './handlers/commandHandler.js';
 import { scheduleScrims } from './Utils/scrimScheduler.js';
 import { sendLogEmbed } from './Utils/logger.js';
+import AnnouncementHandler from "./handlers/announcementHandler.js";
 
 dotenv.config({ path: './src/.env' });
 
@@ -133,6 +134,19 @@ client.on(Events.MessageDelete, async (message) => {
             UPDATE channels SET roster_message_id = NULL WHERE guild_id = ?
         `, [message.guild.id]);
     }
+});
+
+client.on("interactionCreate", async interaction => {
+    if (!interaction.isModalSubmit()) return;
+    if (!interaction.customId.startsWith("announcementModal-")) return;
+
+    const type = interaction.customId.split("-")[1];
+    const title = interaction.fields.getTextInputValue("title");
+    const description = interaction.fields.getTextInputValue("description");
+    const emoji = interaction.fields.getTextInputValue("emoji");
+
+    const announcementHandler = new AnnouncementHandler(interaction.client);
+    await announcementHandler.sendAnnouncement(interaction, type, title, description, emoji);
 });
 
 async function setup() {
