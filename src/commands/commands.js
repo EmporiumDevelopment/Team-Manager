@@ -11,6 +11,7 @@ export default {
         .setDescription("Lists all available bot commands."),
 
     async execute(interaction, commandHandler) {
+        
         const isTestServer = interaction.guild.id === testServerId;
         const availableCommands = [...commandHandler.commands.values()]
             .filter(cmd => cmd.data?.name && (isTestServer || !cmd.development));

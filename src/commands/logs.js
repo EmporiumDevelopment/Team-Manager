@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, PermissionsBitField, MessageFlags } from "discord.js";
-import db from "../database.js";
-import { sendLogEmbed } from "../Utils/logger.js";
+import { executeQuery } from "../database.js";
+import { sendLogEmbed } from "../utils/logger.js";
 
 export default {
     data: new SlashCommandBuilder()
@@ -30,18 +30,28 @@ export default {
             }
         }
 
+        // Check if channel has been setup
+        const logRows = await executeQuery(`
+            SELECT channel_id FROM log_settings WHERE guild_id = ?
+        `, [guildId]);
+
+        if(logRows.length === 0) {
+            // Initialize scrim settings if not present
+            await executeQuery(`
+                INSERT INTO log_settings (guild_id) VALUES (?)
+            `, [guildId]);
+            console.log(`🔍 No scrim settings found for guild: ${guildId}. Initialized default settings.`);
+        }
+
         if(subcommand === "channel") {
             return await this.setChannel(interaction);
         }
-
-        // Check if channel has been setup
-        const [logRows] = await db.execute(`
-            SELECT channel_id FROM log_settings WHERE guild_id = ?
-        `, [guildId]);
     
-        if (logRows.length === 0 || !logRows[0].channel_id) {
-            return interaction.reply({ content: "The logs channel has not been set up! Use `/setrosterchannel` first.", ephemeral: true });
+        // Check if guild is setup for logs
+        if (!logRows.length || !logRows[0]?.channel_id) {
+            return interaction.reply({ content: "Logs channel has not been set up yet! Use `/logs channel` to set it up.", ephemeral: true });
         }
+        
         const logsChannelId = logRows.length > 0 && logRows[0].channel_id ? logRows[0].channel_id : null;
         const logsChannel = await interaction.guild.channels.fetch(logsChannelId);
 
@@ -67,14 +77,19 @@ export default {
         }
 
         try {
-            await db.execute(`
-                INSERT INTO log_settings (guild_id, channel_id)
+            // Then, update the channel_id for the correct guild
+            await executeQuery(`
+                INSERT INTO log_settings (guild_id, channel_id) 
                 VALUES (?, ?)
                 ON DUPLICATE KEY UPDATE channel_id = VALUES(channel_id)
-                `, [guildId, channel.id]);
+            `, [guildId, channel.id]);
 
             await sendLogEmbed(guildId, `Logs channel successfully set to <#${channel.id}> by <@${interaction.user.id}>.`);
-            return interaction.reply({ content: `Logs channel successfully set to <#${channel.id}>`, flag: MessageFlags.Ephemeral });
+            if(interaction.deferred || interaction.replied) {
+                return interaction.followUp({ content: `Logs channel successfully set to <#${channel.id}>`, flag: MessageFlags.Ephemeral });
+            } else {
+                return interaction.reply({ content: `Logs channel successfully set to <#${channel.id}>`, flag: MessageFlags.Ephemeral });
+            }
         } catch (error) {
             console.error(`Failed to set roster channel for Server: ${serverName} ID: ${guildId}:`, error);
             return interaction.reply({ content: "An error occurred while setting up the roster channel.", flag: MessageFlags.Ephemeral });
@@ -88,8 +103,9 @@ export default {
         const title = interaction.options.getString("title");
 
         try {
-            await db.execute(`
-                INSERT INTO log_settings (guild_id, embed_title) VALUES (?, ?)
+            await executeQuery(`
+                INSERT INTO log_settings (guild_id, embed_title) 
+                VALUES (?, ?)
                 ON DUPLICATE KEY UPDATE embed_title = VALUES(embed_title)
             `, [guildId, title]);
 

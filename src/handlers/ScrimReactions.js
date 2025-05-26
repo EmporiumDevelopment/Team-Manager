@@ -1,16 +1,18 @@
 import { EmbedBuilder } from "discord.js";
-import db from "../database.js"; // Ensure `db` is correctly imported
+import { executeQuery } from "../database.js"; // Ensure `db` is correctly imported
 
 async function getScrimEmojiMap(guildId) {
-    const [emojiRows] = await db.execute(`
+    const emojiRows = await executeQuery(`
         SELECT emoji_16, emoji_20, emoji_23 FROM scrim_emojis WHERE guild_id = ?
     `, [guildId]);
 
-    return emojiRows.length ? {
-        [emojiRows[0].emoji_16.match(/^<:\w+:(\d+)>$/)?.[1]]: "16 Players",
-        [emojiRows[0].emoji_20.match(/^<:\w+:(\d+)>$/)?.[1]]: "20 Players",
-        [emojiRows[0].emoji_23.match(/^<:\w+:(\d+)>$/)?.[1]]: "23 Players"
-    } : null;
+    if (!emojiRows.length) return null;
+
+    return {
+        [emojiRows[0].emoji_16.match(/^<:\w+:(\d+)>$/)?.[1] || emojiRows[0].emoji_16]: "16 Players",
+        [emojiRows[0].emoji_20.match(/^<:\w+:(\d+)>$/)?.[1] || emojiRows[0].emoji_20]: "20 Players",
+        [emojiRows[0].emoji_23.match(/^<:\w+:(\d+)>$/)?.[1] || emojiRows[0].emoji_23]: "23 Players"
+    };
 }
 
 export async function handleReactionAdd(reaction, user) {
@@ -24,7 +26,7 @@ export async function handleReactionAdd(reaction, user) {
 
     if (!embed) return;
 
-    const [scrimRows] = await db.execute(`
+    const scrimRows = await executeQuery(`
         SELECT scrim_message_id FROM channels WHERE guild_id = ?
     `, [reaction.message.guild.id]);
 
@@ -40,8 +42,10 @@ export async function handleReactionAdd(reaction, user) {
     }
 
     const emojiKey = reaction.emoji.id ? reaction.emoji.id : reaction.emoji.toString();
+
     if (!emojiMap[emojiKey]) {
-        console.log(`Emoji ${emojiKey} not found in emojiMap for server: ${serverName} ID: ${guildId}`);
+        console.log(`❌ Emoji ${emojiKey} not found in emojiMap for server: ${serverName} ID: ${guildId}`);
+        console.log(`🔍 Expected emoji IDs:`, Object.keys(emojiMap)); // Debugging step
         return;
     }
 
@@ -71,11 +75,11 @@ export async function handleReactionRemove(reaction, user) {
 
     if (!embed) return;
 
-    const [scrimRows] = await db.execute(`
+    const scrimRows = await executeQuery(`
         SELECT scrim_message_id FROM channels WHERE guild_id = ?
     `, [reaction.message.guild.id]);
 
-    if (!scrimRows.length || !scrimRows[0].scrim_message_id) {
+    if (!scrimRows.length || !scrimRows[0]?.scrim_message_id) {
         console.log(`Reaction is not on the stored scrim message.`);
         return;
     }

@@ -3,15 +3,42 @@ import dotenv from "dotenv";
 
 dotenv.config({ path: "./src/.env" });
 
-async function initializeDatabase() {
-    try {
-        const db = await mysql.createConnection({
+const db = mysql.createPool({
             host: process.env.DB_HOST,
             user: process.env.DB_USER,
             password: process.env.DB_PASS,
-            database: process.env.DB_NAME
-        });
+            database: process.env.DB_NAME,
+            waitForConnections: true,
+            connectionLimit: 10,
+            queueLimit: 0,
+            connectTimeout: 10000,
+            multipleStatements: true,
+});
 
+async function executeQuery(sql, params = []) {
+    let attempts = 0;
+    while (attempts < 3) { 
+        try {
+            const [result] = await db.execute(sql, params);
+            // If the result is an array, return it directly; otherwise, wrap it in an array
+            // This allows for both single-row and multi-row results to be handled uniformly
+            return Array.isArray(result) ? result : [result]; 
+        } catch (error) {
+            console.error("Database error:", error);
+            if (error.code === "ECONNRESET") {
+                attempts++;
+                console.log(`Retrying database connection (Attempt ${attempts})...`);
+                await new Promise(res => setTimeout(res, 1000));
+            } else {
+                throw error;
+            }
+        }
+    }
+    throw new Error("Database connection failed after multiple attempts.");
+}
+
+async function initializeDatabase() {
+    try {
         console.log("Database connected successfully!");
 
         // Create `channels` table
@@ -33,25 +60,26 @@ async function initializeDatabase() {
         // Create `roster` table
         await db.execute(`
             CREATE TABLE IF NOT EXISTS roster (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            guild_id VARCHAR(255) NOT NULL,
-            discord_id VARCHAR(30) NOT NULL,
-            player_name VARCHAR(255) NOT NULL,
-            member_level ENUM('owner', 'leader', 'elite', 'member') DEFAULT 'member',
-            flag_emoji VARCHAR(50) DEFAULT '',
-            UNIQUE KEY unique_roster_entry (discord_id, guild_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                guild_id VARCHAR(255) NOT NULL,
+                discord_id VARCHAR(30) NOT NULL,
+                player_name VARCHAR(255) NOT NULL,
+                member_level ENUM('owner', 'leader', 'elite', 'member') DEFAULT 'member',
+                flag_emoji VARCHAR(50) DEFAULT '',
+                UNIQUE KEY unique_roster_entry (discord_id, guild_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
         // Create `roster_settings` table
-        await db.execute(`CREATE TABLE IF NOT EXISTS roster_settings (
-            guild_id VARCHAR(255) PRIMARY KEY,
-            owner_emoji VARCHAR(50) DEFAULT '',
-            leader_emoji VARCHAR(50) DEFAULT '',
-            elite_emoji VARCHAR(50) DEFAULT '',
-            member_emoji VARCHAR(50) DEFAULT '',
-            embed_title VARCHAR(255) DEFAULT 'Team Roster'
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS roster_settings (
+                guild_id VARCHAR(255) PRIMARY KEY,
+                owner_emoji VARCHAR(50) DEFAULT '',
+                leader_emoji VARCHAR(50) DEFAULT '',
+                elite_emoji VARCHAR(50) DEFAULT '',
+                member_emoji VARCHAR(50) DEFAULT '',
+                embed_title VARCHAR(255) DEFAULT 'Team Roster'
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
         // Create `scrim_emojis` table
@@ -73,40 +101,61 @@ async function initializeDatabase() {
                 guild_id VARCHAR(255) PRIMARY KEY,
                 role_id VARCHAR(255) DEFAULT NULL,
                 embed_title VARCHAR(255) DEFAULT 'Scrim Availability',
-                channel_id VARCHAR(255) DEFAULT NULL,
-                UNIQUE (role_id),
-                UNIQUE (embed_title),
-                UNIQUE (channel_id)
+                channel_id VARCHAR(255) DEFAULT NULL
             );
         `);
 
         // Create `log_settings` table
         await db.execute(`
             CREATE TABLE IF NOT EXISTS log_settings (
-            guild_id VARCHAR(255) PRIMARY KEY,
-            channel_id VARCHAR(255) DEFAULT NULL,
-            embed_title VARCHAR(255) DEFAULT 'Team Manager Logs',
-            UNIQUE (channel_id),
-            UNIQUE (embed_title)
+                guild_id VARCHAR(255) PRIMARY KEY,
+                channel_id VARCHAR(255) DEFAULT NULL,
+                embed_title VARCHAR(255) DEFAULT 'Team Manager Logs'
             );
         `);
 
+        // Create announcement_settings table
         await db.execute(`
             CREATE TABLE IF NOT EXISTS announcement_settings (
-            guild_id VARCHAR(50) NOT NULL,
-            type ENUM('public', 'team', 'clan') NOT NULL,
-            channel_id VARCHAR(50) NOT NULL,
-            role_id VARCHAR(50) NULL, -- Optional role mention
-            PRIMARY KEY (guild_id, type)
+                guild_id VARCHAR(255) PRIMARY KEY,
+                public_channel_id VARCHAR(255) DEFAULT NULL,
+                team_channel_id VARCHAR(255) DEFAULT NULL,
+                clan_channel_id VARCHAR(255) DEFAULT NULL,
+                public_channel_role_id VARCHAR(255) DEFAULT NULL,
+                team_channel_role_id VARCHAR(255) DEFAULT NULL,
+                clan_channel_role_id VARCHAR(255) DEFAULT NULL,
+                UNIQUE (public_channel_id),
+                UNIQUE (team_channel_id),
+                UNIQUE (clan_channel_id),
+                UNIQUE (public_channel_role_id),
+                UNIQUE (team_channel_role_id),
+                UNIQUE (clan_channel_role_id)
             );
         `);
 
-        return db;
+        // Create tournament_settings table
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS tournament_settings (
+                guild_id VARCHAR(255) PRIMARY KEY,
+                female_role_id VARCHAR(255) DEFAULT NULL,
+                female_message_id VARCHAR(255) DEFAULT NULL,
+                mixed_role_id VARCHAR(255) DEFAULT NULL,
+                mixed_message_id VARCHAR(255) DEFAULT NULL,
+                UNIQUE (female_role_id),
+                UNIQUE (female_message_id),
+                UNIQUE (mixed_role_id),
+                UNIQUE (mixed_message_id)
+            );
+        `);
+
     } catch (error) {
         console.error("Database connection failed:", error);
         process.exit(1);
     }
 }
 
-const db = await initializeDatabase();
-export default db;
+(async () => {
+    await initializeDatabase();
+})();
+
+export { db, executeQuery };

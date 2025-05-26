@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, PermissionsBitField, MessageFlags } from "discord.js";
-import db from "../database.js";
-import { sendLogEmbed } from "../Utils/logger.js";
+import { executeQuery } from "../database.js";
+import { sendLogEmbed } from "../utils/logger.js";
 
 export default {
     data: new SlashCommandBuilder()
@@ -138,17 +138,26 @@ export default {
                 }
             }
 
+            const channelRows = await executeQuery(`
+                SELECT * FROM channels WHERE guild_id = ? AND type = "roster"
+            `, [guildId]);
+
+            // check if roster settings exist
+            if(channelRows.length === 0) {
+                // Initialize roster settings if not present
+                await executeQuery(`
+                    INSERT INTO channels (guild_id, type) VALUES (?, "roster")
+                `, [guildId]);
+                console.log(`🔍 No roster settings found for guild: ${guildId}. Initialized default settings.`);
+            }
+
             if (subcommand === 'channel') {
                 await this.setRosterChannel(interaction);
                 return;
             }
 
             // Check if roster channel is set
-            const [channelRows] = await db.execute(`
-                SELECT roster_channel_id FROM channels WHERE guild_id = ? AND type = "roster"
-            `, [guildId]);
-        
-            if (channelRows.length === 0 || !channelRows[0].roster_channel_id) {
+            if (!channelRows[0]?.roster_channel_id) {
                 return interaction.reply({ content: "The roster channel has not been set up! Use `/roster channel` first.", ephemeral: true });
             }
         
@@ -184,23 +193,50 @@ export default {
             const role = interaction.options.getString("role");
         
             try {
-                const [existingRows] = await db.execute(`
+
+                // Validate user input
+                if(!user) {
+                    return interaction.reply({ content: "Please specify a user to add to the roster.", ephemeral: true });
+                }
+
+                if(!playerName) {
+                    return interaction.reply({ content: "Please provide a valid player name.", ephemeral: true });
+                }
+
+                if(!level) {
+                    return interaction.reply({ content: "Please select a valid role for the player.", ephemeral: true });
+                }
+
+                if(!emoji) {
+                    return interaction.reply({ content: "Please provide a valid flag emoji for the player.", ephemeral: true });
+                }
+
+                if(!role) {
+                    return interaction.reply({ content: "Please select a valid role for the player.", ephemeral: true });
+                }
+
+                // Check if the user is already in the roster
+                const rosterRows = await executeQuery(`
                     SELECT * FROM roster WHERE discord_id = ? AND guild_id = ?
                 `, [user.id, guildId]);
         
-                if (existingRows.length > 0) {
+                // If the user is already in the roster, return an error message
+                if (rosterRows.length > 0) {
                     return interaction.reply({ content: `<@${user.id}> is already in the roster!`, ephemeral: true });
                 }
         
-                await db.execute(`
+                // Insert the new player into the roster
+                await executeQuery(`
                     INSERT INTO roster (discord_id, guild_id, player_name, member_level, flag_emoji) 
                     VALUES (?, ?, ?, ?, ?) 
                     ON DUPLICATE KEY UPDATE player_name = VALUES(player_name), member_level = VALUES(member_level), flag_emoji = VALUES(flag_emoji);
                 `, [user.id, guildId, playerName, level, emoji]);
         
+                // Log the addition
                 await sendLogEmbed(guildId, `**${playerName}** was added to the roster as **${role}** by <@${interaction.user.id}>.`, "add");
                 await interaction.reply({ content: `<@${user.id}> has been added to the roster as ${level}!`, ephemeral: true });
         
+                // Update the roster embed
                 await this.updateRosterEmbed(interaction);
             } catch (error) {
                 console.error("Error adding player:", error);
@@ -214,23 +250,33 @@ export default {
             const user = interaction.options.getUser('player');
         
             try {
-                const [existingRows] = await db.execute(`
+
+                if (!user) {
+                    return interaction.reply({ content: "Please specify a user to remove from the roster.", ephemeral: true });
+                }
+
+                // Check if the user is in the roster
+                const rosterRows = await executeQuery(`
                     SELECT * FROM roster WHERE discord_id = ? AND guild_id = ?
                 `, [user.id, guildId]);
         
-                if (existingRows.length === 0) {
+                if (rosterRows.length === 0) {
                     return interaction.reply({ content: `<@${user.id}> is not in the roster!`, ephemeral: true });
                 }
+
+                // Get the player's name from the roster
+                const playerName = rosterRows[0].player_name;
         
-                await db.execute(`
+                // Remove the player from the roster
+                await executeQuery(`
                     DELETE FROM roster WHERE discord_id = ? AND guild_id = ?
                 `, [user.id, guildId]);
-
-                const playerName = existingRows[0].player_name;
         
+                // Log the removal
                 await sendLogEmbed(guildId, `**${playerName}** was removed from the roster by <@${interaction.user.id}>.`, "remove");
                 await interaction.reply({ content: `<@${user.id}> has been removed from the roster.`, ephemeral: true });
         
+                // Update the roster embed
                 await this.updateRosterEmbed(interaction);
             } catch (error) {
                 console.error("Error removing player:", error);
@@ -245,22 +291,42 @@ export default {
             const serverName = interaction.guild.name;
 
             try {
+
                 // 🔹 Fetch stored embed message ID
-                const [rosterRows] = await db.execute(`
+                const rosterRows = await executeQuery(`
                     SELECT roster_message_id, roster_channel_id FROM channels WHERE guild_id = ?
                 `, [guildId]);
+
+                if(rosterRows.length === 0) {
+                    console.error(`No roster settings found in the database for server: ${serverName} ID: ${guildId}`);
+                    return;
+                }
         
+                if (!rosterRows[0]?.roster_channel_id) {
+                    console.error(`No roster channel found in the database for server: ${serverName} ID: ${guildId}`);
+                    return;
+                }
+
+                // 🔹 Fetch the roster channel
+                // If roster_channel_id is not set, log an error and return
                 const rosterChannelId = rosterRows.length > 0 ? rosterRows[0].roster_channel_id : null;
                 if (!rosterChannelId) {
                     console.error(`No roster channel ID found in the database for server: ${serverName} ID: ${guildId}`);
                     return;
                 }
 
+                // Fetch the roster channel using the ID
                 const rosterChannel = await client.channels.fetch(rosterChannelId).catch(error => {
                     console.error(`Error fetching roster channel for server: ${serverName} ID: ${guildId}`, error);
                     return null;
                 });
 
+                if(!rosterRows[0]?.roster_message_id) {
+                    console.error(`No roster message ID found in the database for server: ${serverName} ID: ${guildId}`);
+                    return;
+                }
+
+                // fetch the roster message ID from the database
                 const rosterMessageId = rosterRows.length > 0 ? rosterRows[0].roster_message_id : null;
                 let rosterMessage = rosterMessageId ? await rosterChannel.messages.fetch(rosterMessageId).catch(error => {
                     console.error(`Error fetching roster message for server: ${serverName} ID: ${guildId}`, error);
@@ -268,18 +334,19 @@ export default {
                 }) : null;
 
                 // 🔹 Fetch stored embed title
-                const [titleRow] = await db.execute(`
+                const titleRow = await executeQuery(`
                     SELECT embed_title FROM roster_settings WHERE guild_id = ?
                 `, [guildId]);
                 
-                const embedTitle = titleRow.length > 0 ? titleRow[0].embed_title : "Team Roster";
+                // If no title is set, use a default title
+                const embedTitle = titleRow.length > 0 ? titleRow[0]?.embed_title : "Team Roster";
                 
                 // 🔹 Retrieve and format player data
-                const [players] = await db.execute(`
+                const rosterPlayers = await executeQuery(`
                     SELECT * FROM roster WHERE guild_id = ? ORDER BY FIELD(member_level, "owner", "leader", "elite", "member")
                 `, [guildId]);
         
-                const [emojiSettings] = await db.execute(`
+                const emojiSettings = await executeQuery(`
                     SELECT owner_emoji, leader_emoji, elite_emoji, member_emoji FROM roster_settings WHERE guild_id = ?
                 `, [guildId]);
 
@@ -290,14 +357,14 @@ export default {
                     member: emojiSettings[0]?.member_emoji || ''
                 };
 
-                let description = players.length === 0 
+                let description = rosterPlayers.length === 0 
                 ? '**No players have been added yet!**\n\nUse `/roster add` to add a player.\nUse `/roster remove` to remove a player.\nUse `/roster title` to change the roster title.\n\nYour roster will update here as changes are made.'
                 : '';
         
-                if (players.length > 0) {
+                if (rosterPlayers.length > 0) {
                     const roles = { owner: '**OWNER**', leader: '**LEADER**', elite: '**ELITE MEMBER**', member: '**MEMBER**' };
                     for (const role of Object.keys(roles)) {
-                        const rolePlayers = players.filter(p => p.member_level === role);
+                        const rolePlayers = rosterPlayers.filter(p => p.member_level === role);
                         if (rolePlayers.length > 0) {
                             description += `\n\n${roles[role]}\n`;
                             description += rolePlayers.map(player => ` ${roleEmojis[role]} | ${player.flag_emoji} | ${player.player_name}`).join('\n') + '\n';
@@ -318,7 +385,7 @@ export default {
                     rosterMessage = await rosterChannel.send({ embeds: [rosterEmbed] });
         
                     if (rosterMessage) {
-                        await db.execute(`
+                        await executeQuery(`
                             UPDATE channels SET roster_message_id = ? WHERE guild_id = ?
                         `, [rosterMessage.id, guildId]);
                     }
@@ -335,14 +402,29 @@ export default {
             const newTitle = interaction.options.getString("title");
         
             try {
-                await db.execute(`
-                    UPDATE roster_settings SET embed_title = ? WHERE guild_id = ?
-                `, [newTitle, guildId]);
+
+                const rosterSettings = await executeQuery(`
+                    SELECT * FROM roster_settings WHERE guild_id = ?
+                `, [guildId]);
+
+                if (rosterSettings.length === 0) {
+                    await executeQuery(`
+                        INSERT INTO roster_settings (guild_id, embed_title) VALUES (?, ?)
+                    `, [guildId, newTitle]);
+                    console.log(`🔍 No roster settings found for guild: ${guildId}. Initialized default settings.`);
+                } else {
+                    // Update the existing title
+                    await executeQuery(`
+                        UPDATE roster_settings SET embed_title = ? WHERE guild_id = ?
+                    `, [newTitle, guildId]);
+                }
             
+                // Update the roster embed with the new title
                 await sendLogEmbed(guildId, `Roster title was changed to **${newTitle}** by <@${interaction.user.id}>.`);
                 await interaction.reply({ content: `Roster title updated to **${newTitle}**!`, flag: MessageFlags.ephemeral });
             
-                const [channelRows] = await db.execute(`
+                // After updating the title, check if the roster channel exists and update the embed
+                const channelRows = await executeQuery(`
                     SELECT roster_channel_id FROM channels WHERE guild_id = ?
                 `, [guildId]);
             
@@ -361,26 +443,33 @@ export default {
             const guildId = interaction.guild.id;
 
             try {
-                const [result] = await db.execute(`
-                    SELECT roster_channel_id, roster_message_id FROM channels WHERE guild_id = ?
+                const channelRows = await executeQuery(`
+                    SELECT * FROM channels WHERE guild_id = ?
                 `, [guildId]);
 
-                if (!result.length || !result[0].roster_channel_id) {
-                    return interaction.reply({ 
-                        content: "No roster channel found! Use `/setrosterchannel` first.", 
-                        ephemeral: true 
-                    });
+                if(channelRows.length === 0) {
+                    // Initialize roster settings if not present
+                    await executeQuery(`
+                        INSERT INTO channels (guild_id, type) VALUES (?, "roster")
+                    `, [guildId]);
+                    console.log(`🔍 No roster settings found for guild: ${guildId}. Initialized default settings.`);
                 }
 
-                const channel = interaction.guild.channels.cache.get(result[0].roster_channel_id);
+                if(!channelRows[0]?.roster_channel_id) {
+                    console.error(`No roster channel found in the database for server: ${serverName} ID: ${guildId}`);
+                    return interaction.reply({ content: "No roster channel found! Use `/roster channel` first.", ephemeral: true });
+                }
+
+                // Fetch the roster channel using the ID
+                const channel = interaction.guild.channels.cache.get(channelRows[0].roster_channel_id);
                 if (!channel) {
                     return interaction.reply({ content: "Roster channel is invalid or missing.", ephemeral: true });
                 }
 
                 // Check if an existing roster message exists and delete it
-                if (result[0].roster_message_id) {
+                if (channelRows[0]?.roster_message_id) {
                     try {
-                        const oldMessage = await channel.messages.fetch(result[0].roster_message_id);
+                        const oldMessage = await channel.messages.fetch(channelRows[0]?.roster_message_id);
                         await oldMessage.delete();
                         console.log("Old roster embed deleted.");
                     } catch (error) {
@@ -389,7 +478,7 @@ export default {
                 }
 
                 // Fetch stored roster data sorted by hierarchy
-                const [rosterData] = await db.execute(`
+                const rosterData = await executeQuery(`
                     SELECT player_name, member_level, flag_emoji 
                     FROM roster 
                     WHERE guild_id = ? 
@@ -418,13 +507,13 @@ export default {
                     }
                 }
 
-                const extraRosterData = await db.execute(`
+                const extraRosterData = await executeQuery(`
                     SELECT embed_title FROM roster_settings WHERE guild_id = ?
                 `, [guildId]);
 
                 // Use stored embed title
                 const embed = {
-                    title: extraRosterData[0].embed_title || "Team Roster",
+                    title: extraRosterData[0]?.embed_title || "Team Roster",
                     description,
                     color: 0xFFFFFF,
                 };
@@ -432,7 +521,7 @@ export default {
                 const message = await channel.send({ embeds: [embed] });
 
                 // Store the new message ID
-                await db.execute(`
+                await executeQuery(`
                     UPDATE channels SET roster_message_id = ? WHERE guild_id = ?
                 `, [message.id, guildId]);
 
@@ -454,26 +543,43 @@ export default {
                 const field = interaction.options.getString('field');
                 const newValue = interaction.options.getString('new_value');
 
+                if(!user) {
+                    return interaction.reply({ content: "Please specify a user to edit in the roster.", ephemeral: true });
+                }
+
+                if(!field) {
+                    return interaction.reply({ content: "Please specify a field to edit (name, role, flag).", ephemeral: true });
+                }
+
+                if(!newValue) {
+                    return interaction.reply({ content: "Please provide a new value for the selected field.", ephemeral: true });
+                }
+
                 if (field === 'member_level' && !['owner', 'leader', 'elite', 'member'].includes(newValue.toLowerCase())) {
                     return interaction.reply({ content: "Invalid role! Please choose from Owner, Leader, Elite, or Member.", ephemeral: true });
                 }
 
                 // Ensure the user exists in the roster
-                const [result] = await db.execute(`
+                const rosterRows = await executeQuery(`
                     SELECT * FROM roster WHERE discord_id = ? AND guild_id = ?
                 `, [user.id, guildId]);
 
-                if (!result.length) {
+                if (!rosterRows.length) {
                     return interaction.reply({ content: `This user is not in the roster.`, ephemeral: true });
                 }
 
                 // Update the field in the database
-                await db.execute(`
+                await executeQuery(`
                     UPDATE roster SET ${field} = ? WHERE discord_id = ? AND guild_id = ?
                 `, [newValue, user.id, guildId]);
 
+                // Update the roster embed with the new value
                 await this.updateRosterEmbed(interaction);
 
+                // log
+                await sendLogEmbed(guildId, `**${user.username}**'s **${field}** was updated to \`${newValue}\` by <@${interaction.user.id}>.`);
+
+                // Log the edit
                 return interaction.reply({ 
                     content: `Updated **${field}** for **${user.username}** to \`${newValue}\`.`, 
                     ephemeral: true 
@@ -488,21 +594,40 @@ export default {
 
             const serverName = interaction.guild.name;
             const guildId = interaction.guild.id;
+            const rosterChannel = interaction.options.getChannel("channel");
 
             try {
-                const rosterChannel = interaction.options.getChannel("channel");
                 
-                await db.execute(`
+                if(!rosterChannel) {
+                    return interaction.reply({ content: "Please provide a valid roster channel!", flags: MessageFlags.Ephemeral });
+                }
+
+                const channelRows = await executeQuery(`
+                    SELECT * FROM channels WHERE guild_id = ? AND type = "roster"
+                `, [guildId]);
+
+                if(channelRows.length === 0) {
+                    // Initialize roster settings if not present
+                    await executeQuery(`
+                        INSERT INTO channels (guild_id, type) VALUES (?, "roster")
+                    `, [guildId]);
+                    console.log(`🔍 No roster settings found for guild: ${guildId}. Initialized default settings.`);
+                }
+
+                await executeQuery(`
                     INSERT INTO channels (guild_id, roster_channel_id, type)
                     VALUES (?, ?, "roster")
                     ON DUPLICATE KEY UPDATE roster_channel_id = VALUES(roster_channel_id), type = "roster";
                 `, [guildId, rosterChannel.id]);
 
-                const [rosterSettings] = await db.execute(`
+                const rosterSettings = await executeQuery(`
                     SELECT * FROM roster_settings WHERE guild_id = ?;
                 `, [guildId]);
 
+                // Get the embed title from the settings or use a default title
                 const rosterTitle = rosterSettings[0]?.embed_title || "Team Roster";
+
+                // Default roster description if no players are added yet
                 let rosterDescription =
                 '**No players have been added yet!**\n\n'
                 + 'Use `/roster add` to add a player to the roster.\n'
@@ -518,22 +643,19 @@ export default {
                     .setDescription(rosterDescription)
                     .setFooter({ text: `Setup by ${interaction.user.username}` });
 
+                // Send the embed to the specified roster channel
                 const rosterMessage = await rosterChannel.send({ embeds: [rosterEmbed] });
 
-                if (!rosterChannel) {
-                    return interaction.reply({ content: "Please provide a valid roster channel!", flags: MessageFlags.Ephemeral });
-                }
-
                 // Store Embed Message ID in Database
-                await db.execute(`
+                await executeQuery(`
                     INSERT INTO channels (guild_id, roster_message_id)
                     VALUES (?, ?)
                     ON DUPLICATE KEY UPDATE roster_message_id = VALUES(roster_message_id);
                 `, [guildId, rosterMessage.id]);
 
+                // Log the setup
                 await sendLogEmbed(guildId, `Roster channel successfully setup by <@${interaction.user.id}>.`);
                 return interaction.reply({ content: `Roster channel successfully set! The roster embed has been sent to <#${rosterChannel.id}>`, flag: MessageFlags.Ephemeral });
-
             } catch (error) {
                 console.error(`Failed to set roster channel for server: ${serverName} ID: ${guildId}:`, error);
                 return interaction.reply({ content: "An error occurred while setting up the roster channel.", flag: MessageFlags.Ephemeral });
@@ -544,14 +666,45 @@ export default {
 
             const serverName = interaction.guild.name;
             const guildId = interaction.guild.id;
+
+            const ownerEmoji = interaction.options.getString('owner');
+            const leaderEmoji = interaction.options.getString('leader');
+            const eliteEmoji = interaction.options.getString('elite');
+            const memberEmoji = interaction.options.getString('member');
             
             try {
-                const ownerEmoji = interaction.options.getString('owner');
-                const leaderEmoji = interaction.options.getString('leader');
-                const eliteEmoji = interaction.options.getString('elite');
-                const memberEmoji = interaction.options.getString('member');
 
-                await db.execute(`
+                if(!ownerEmoji) {
+                    return interaction.reply({ content: "Please provide a valid emoji for the owner role.", ephemeral: true });
+                }
+
+                if(!leaderEmoji) {
+                    return interaction.reply({ content: "Please provide a valid emoji for the leader role.", ephemeral: true });
+                }
+
+                if(!eliteEmoji) {
+                    return interaction.reply({ content: "Please provide a valid emoji for the elite role.", ephemeral: true });
+                }
+
+                if(!memberEmoji) {
+                    return interaction.reply({ content: "Please provide a valid emoji for the member role.", ephemeral: true });
+                }
+
+                // Check if roster settings exist
+                const rosterRows = await executeQuery(`
+                    SELECT * FROM roster_settings WHERE guild_id = ?
+                `, [guildId]);
+
+                if(rosterRows.length === 0) {
+                    // Initialize roster settings if not present
+                    await executeQuery(`
+                        INSERT INTO roster_settings (guild_id) VALUES (?)
+                    `, [guildId]);
+                    console.log(`🔍 No roster settings found for guild: ${guildId}. Initialized default settings.`);
+                }
+
+                // Insert or update the emojis in the roster_settings table
+                await executeQuery(`
                     INSERT INTO roster_settings (guild_id, owner_emoji, leader_emoji, elite_emoji, member_emoji) 
                     VALUES (?, ?, ?, ?, ?) 
                     ON DUPLICATE KEY UPDATE 
@@ -561,6 +714,7 @@ export default {
                     member_emoji = IF(VALUES(member_emoji) IS NOT NULL, VALUES(member_emoji), member_emoji);
                 `, [guildId, ownerEmoji, leaderEmoji, eliteEmoji, memberEmoji]);
 
+                // Send logs
                 await sendLogEmbed(interaction.guild.id, `Roster emojis updated by ${interaction.user.username}:\nOwner: ${ownerEmoji}\nLeader: ${leaderEmoji}\nElite: ${eliteEmoji}\nMember: ${memberEmoji}`);
                 return interaction.reply({
                     content: `Roster emojis updated:\nOwner: ${ownerEmoji}\nLeader: ${leaderEmoji}\nElite: ${eliteEmoji}\nMember: ${memberEmoji}`,

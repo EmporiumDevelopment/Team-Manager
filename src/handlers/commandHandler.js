@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs';
-import { sendScrimEmbed } from "../Utils/scrimScheduler.js";
+import { sendScrimEmbed } from "../utils/scrimScheduler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
