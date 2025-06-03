@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder, PermissionsBitField, MessageFlags } from "discord.js";
 import { executeQuery } from "../database.js";
 import { sendLogEmbed } from "../utils/logger.js";
+import COLOUR_VALUES from "../utils/colourMap.js";
 
 export default {
     data: new SlashCommandBuilder()
@@ -148,7 +149,7 @@ export default {
                 await executeQuery(`
                     INSERT INTO channels (guild_id, type) VALUES (?, "roster")
                 `, [guildId]);
-                console.log(`🔍 No roster settings found for guild: ${guildId}. Initialized default settings.`);
+                console.log(`No roster settings found for guild: ${guildId}. Initialized default settings.`);
             }
 
             if (subcommand === 'channel') {
@@ -233,7 +234,7 @@ export default {
                 `, [user.id, guildId, playerName, level, emoji]);
         
                 // Log the addition
-                await sendLogEmbed(guildId, `**${playerName}** was added to the roster as **${role}** by <@${interaction.user.id}>.`, "add");
+                await sendLogEmbed(guildId, `**${playerName}** was added to the roster as **${role}** by <@${interaction.user.id}>.`, COLOUR_VALUES.ADD);
                 await interaction.reply({ content: `<@${user.id}> has been added to the roster as ${level}!`, ephemeral: true });
         
                 // Update the roster embed
@@ -273,7 +274,7 @@ export default {
                 `, [user.id, guildId]);
         
                 // Log the removal
-                await sendLogEmbed(guildId, `**${playerName}** was removed from the roster by <@${interaction.user.id}>.`, "remove");
+                await sendLogEmbed(guildId, `**${playerName}** was removed from the roster by <@${interaction.user.id}>.`, COLOUR_VALUES.REMOVE);
                 await interaction.reply({ content: `<@${user.id}> has been removed from the roster.`, ephemeral: true });
         
                 // Update the roster embed
@@ -411,7 +412,7 @@ export default {
                     await executeQuery(`
                         INSERT INTO roster_settings (guild_id, embed_title) VALUES (?, ?)
                     `, [guildId, newTitle]);
-                    console.log(`🔍 No roster settings found for guild: ${guildId}. Initialized default settings.`);
+                    console.log(`No roster settings found for guild: ${guildId}. Initialized default settings.`);
                 } else {
                     // Update the existing title
                     await executeQuery(`
@@ -420,7 +421,7 @@ export default {
                 }
             
                 // Update the roster embed with the new title
-                await sendLogEmbed(guildId, `Roster title was changed to **${newTitle}** by <@${interaction.user.id}>.`);
+                await sendLogEmbed(guildId, `Roster title was changed to **${newTitle}** by <@${interaction.user.id}>.`, COLOUR_VALUES.EDIT);
                 await interaction.reply({ content: `Roster title updated to **${newTitle}**!`, flag: MessageFlags.ephemeral });
             
                 // After updating the title, check if the roster channel exists and update the embed
@@ -452,7 +453,7 @@ export default {
                     await executeQuery(`
                         INSERT INTO channels (guild_id, type) VALUES (?, "roster")
                     `, [guildId]);
-                    console.log(`🔍 No roster settings found for guild: ${guildId}. Initialized default settings.`);
+                    console.log(`No roster settings found for guild: ${guildId}. Initialized default settings.`);
                 }
 
                 if(!channelRows[0]?.roster_channel_id) {
@@ -525,7 +526,7 @@ export default {
                     UPDATE channels SET roster_message_id = ? WHERE guild_id = ?
                 `, [message.id, guildId]);
 
-                sendLogEmbed(guildId, `Roster has been restored by <@${interaction.user.id}>.`);
+                sendLogEmbed(guildId, `Roster has been restored by <@${interaction.user.id}>.`, COLOUR_VALUES.ADD);
                 return interaction.reply({ content: "Roster has been restored", ephemeral: true });
             } catch (error) {
                 console.error(`Failed to fix roster for server: ${serverName} ID: ${guildId}:`, error);
@@ -577,7 +578,7 @@ export default {
                 await this.updateRosterEmbed(interaction);
 
                 // log
-                await sendLogEmbed(guildId, `**${user.username}**'s **${field}** was updated to \`${newValue}\` by <@${interaction.user.id}>.`);
+                await sendLogEmbed(guildId, `**${user.username}**'s **${field}** was updated to \`${newValue}\` by <@${interaction.user.id}>.`, COLOUR_VALUES.ADD);
 
                 // Log the edit
                 return interaction.reply({ 
@@ -611,7 +612,7 @@ export default {
                     await executeQuery(`
                         INSERT INTO channels (guild_id, type) VALUES (?, "roster")
                     `, [guildId]);
-                    console.log(`🔍 No roster settings found for guild: ${guildId}. Initialized default settings.`);
+                    console.log(`No roster settings found for guild: ${guildId}. Initialized default settings.`);
                 }
 
                 await executeQuery(`
@@ -654,7 +655,7 @@ export default {
                 `, [guildId, rosterMessage.id]);
 
                 // Log the setup
-                await sendLogEmbed(guildId, `Roster channel successfully setup by <@${interaction.user.id}>.`);
+                await sendLogEmbed(guildId, `Roster channel successfully setup by <@${interaction.user.id}>.`, COLOUR_VALUES.ADD);
                 return interaction.reply({ content: `Roster channel successfully set! The roster embed has been sent to <#${rosterChannel.id}>`, flag: MessageFlags.Ephemeral });
             } catch (error) {
                 console.error(`Failed to set roster channel for server: ${serverName} ID: ${guildId}:`, error);
@@ -700,7 +701,7 @@ export default {
                     await executeQuery(`
                         INSERT INTO roster_settings (guild_id) VALUES (?)
                     `, [guildId]);
-                    console.log(`🔍 No roster settings found for guild: ${guildId}. Initialized default settings.`);
+                    console.log(`No roster settings found for guild: ${guildId}. Initialized default settings.`);
                 }
 
                 // Insert or update the emojis in the roster_settings table
@@ -715,7 +716,7 @@ export default {
                 `, [guildId, ownerEmoji, leaderEmoji, eliteEmoji, memberEmoji]);
 
                 // Send logs
-                await sendLogEmbed(interaction.guild.id, `Roster emojis updated by ${interaction.user.username}:\nOwner: ${ownerEmoji}\nLeader: ${leaderEmoji}\nElite: ${eliteEmoji}\nMember: ${memberEmoji}`);
+                await sendLogEmbed(interaction.guild.id, `Roster emojis updated by ${interaction.user.username}:\nOwner: ${ownerEmoji}\nLeader: ${leaderEmoji}\nElite: ${eliteEmoji}\nMember: ${memberEmoji}`, COLOUR_VALUES.ED);
                 return interaction.reply({
                     content: `Roster emojis updated:\nOwner: ${ownerEmoji}\nLeader: ${leaderEmoji}\nElite: ${eliteEmoji}\nMember: ${memberEmoji}`,
                     ephemeral: true
@@ -726,5 +727,5 @@ export default {
             }
         },
 
-        devlopment: false
+        devlopment: false,
 };

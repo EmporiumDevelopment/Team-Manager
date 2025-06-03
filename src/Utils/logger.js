@@ -1,7 +1,7 @@
 import { EmbedBuilder } from "discord.js";
 import { executeQuery } from "../database.js";
 import client from "../index.js";
-import colourMap from "./colourMap.js";
+import COLOUR_VALUES from "../utils/colourMap.js";
 
 export async function sendLogEmbed(guildId, logMessage, action = "default") {
 
@@ -12,6 +12,8 @@ export async function sendLogEmbed(guildId, logMessage, action = "default") {
 
     const guild = await client.guilds.fetch(guildId);
     const serverName = guild ? guild.name : "Unknown Server";
+
+    action = typeof action === "string" ? action.toUpperCase() : "DEFAULT";
 
     try {
 
@@ -29,7 +31,11 @@ export async function sendLogEmbed(guildId, logMessage, action = "default") {
         
         try {
 
-            const logChannel = await client.channels.fetch(logChannelId);
+            const logChannel = await client.channels.fetch(logChannelId).catch(err => {
+                console.error(`Failed to fetch log channel for ${serverName} (ID: ${guildId})`, err);
+                return null;
+            });
+
             // 🔹 Check if the channel exists
             // if an ID exists in db set it to null
             // as this channel no longer exists
@@ -39,10 +45,12 @@ export async function sendLogEmbed(guildId, logMessage, action = "default") {
                 return;
             }
 
+            const embedColour = COLOUR_VALUES[action.toUpperCase()] ?? COLOUR_VALUES.DEFAULT;
+
             // 🔹 Create the embed
             const logEmbed = new EmbedBuilder()
                 .setTitle("Team Manager Log")
-                .setColor(colourMap[action])
+                .setColor(embedColour)
                 .setDescription(logMessage)
                 .setFooter({ text: `Logged at ${new Date().toLocaleString()}` });
 

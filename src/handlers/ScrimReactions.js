@@ -43,11 +43,7 @@ export async function handleReactionAdd(reaction, user) {
 
     const emojiKey = reaction.emoji.id ? reaction.emoji.id : reaction.emoji.toString();
 
-    if (!emojiMap[emojiKey]) {
-        console.log(`❌ Emoji ${emojiKey} not found in emojiMap for server: ${serverName} ID: ${guildId}`);
-        console.log(`🔍 Expected emoji IDs:`, Object.keys(emojiMap)); // Debugging step
-        return;
-    }
+    if (!emojiMap[emojiKey]) return;
 
     const updatedFields = embed.fields.map(field =>
     field.name.includes(reaction.emoji.toString())

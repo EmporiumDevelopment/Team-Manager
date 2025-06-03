@@ -7,6 +7,8 @@ import CommandHandler from './handlers/commandHandler.js';
 import { scheduleScrims } from './utils/scrimScheduler.js';
 import { sendLogEmbed } from './utils/logger.js';
 import { executeQuery } from './database.js';
+import "./utils/schedule/scheduleTasks.js"
+import { handleScheduleReactionAdd, handleScheduleReactionRemove } from './handlers/schedule/scheduleAnnouncementReactions.js';
 
 dotenv.config({ path: './src/.env' });
 
@@ -29,18 +31,17 @@ const commandHandler = new CommandHandler(client);
 commandHandler.loadCommands();
 
 client.once(Events.ClientReady, async () => {
-
     console.log(`Bot is online!`);
 
     const guilds = client.guilds.cache.map(guild => guild.id);
 
     for (const guildId of guilds) {
-
         if (!guildId) {
             console.error("Error: guildId is undefined.");
             continue;
         }
 
+        // 🔹 Fetch scrim messages
         const scrimRows = await executeQuery(`
             SELECT scrim_message_id FROM channels WHERE guild_id = ?
         `, [guildId]);
@@ -49,33 +50,59 @@ client.once(Events.ClientReady, async () => {
             SELECT channel_id FROM scrim_settings WHERE guild_id = ?
         `, [guildId]);
 
-        if (!scrimSettings || scrimSettings.length === 0 || !scrimSettings[0]?.channel_id) {
+        if (!scrimSettings.length || !scrimSettings[0]?.channel_id) {
             console.error(`Skipping guild: Missing scrim channel ID for guild ${guildId}`);
             continue;
         }
 
         try {
             const channel = await client.channels.fetch(scrimSettings[0]?.channel_id);
-
-            if(!channel) {
+            if (!channel) {
                 console.error(`Skipping guild: Channel not found for guild ${guildId}`);
                 continue;
             }
 
-            if (scrimRows.length === 0 || !scrimRows[0]?.scrim_message_id) {
+            if (!scrimRows.length || !scrimRows[0]?.scrim_message_id) {
                 console.log(`Skipping guild ${guildId}: No scrim message stored.`);
                 continue;
             }
 
-            const message = channel.messages.fetch(scrimRows[0]?.scrim_message_id).catch(() => null);
-
-            if (!message) {
+            const scrimMessage = await channel.messages.fetch(scrimRows[0]?.scrim_message_id).catch(() => null);
+            if (!scrimMessage) {
                 console.log(`Skipping guild ${guildId}: Scrim message no longer exists.`);
-                continue;
             }
 
         } catch (error) {
             console.log(`Failed to fetch scrim message for guild ${guildId}:`, error);
+        }
+
+        // 🔹 Fetch schedule messages
+        const scheduleRows = await executeQuery(`
+            SELECT announcement_message_id, announcements_channel_id 
+            FROM schedule s 
+            JOIN schedule_settings ss ON s.guild_id = ss.guild_id 
+            WHERE s.announcement_message_id IS NOT NULL;
+        `);
+
+        for (const row of scheduleRows) {
+            try {
+                const scheduleChannel = await client.channels.fetch(row.announcements_channel_id);
+                if (!scheduleChannel) {
+                    console.error(`Skipping guild: Schedule channel not found for ${row.announcements_channel_id}`);
+                    continue;
+                }
+
+                const scheduleMessage = await scheduleChannel.messages.fetch(row.announcement_message_id).catch(() => null);
+                if (!scheduleMessage) {
+                    console.log(`Skipping schedule message ${row.announcement_message_id}: Message no longer exists.`);
+                    continue;
+                }
+
+                console.log(`✅ Cached schedule message ${scheduleMessage.id} in ${scheduleChannel.id}`);
+
+            } catch (error) {
+                console.log(`❌ Failed to fetch schedule message ${row.announcement_message_id}:`, error);
+            }
         }
     }
 
@@ -106,30 +133,65 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
 
     if (!reaction.message.guild) return; // Ensure it's in a guild
 
-    if (!reaction.message) {
+    console.log(`🔍 Reaction detected: ${reaction.emoji.name} by ${user.tag} on message ${reaction.message.id}`);
+
+    if(user.bot) return;
+
+    console.log(`🔍 Reaction detected: ${reaction.emoji.name} by ${user.tag}`)
+
+    if (reaction.message.partial) {
         try {
-            reaction.message = await reaction.message.channel.messages.fetch(reaction.message.id);
+            await reaction.message.fetch();
+            console.log("Reaction message fetched successfully.");
         } catch (error) {
             console.log("Failed to fetch message:", error);
             return;
         }
     }
+
+
+    // check if reaction message is a schedule announcement
+    const scheduleData = await executeQuery(`
+        SELECT event_name FROM schedule WHERE announcement_message_id = ?;
+    `, [reaction.message.id]);
+
+    console.log(`🔍 Schedule data check result:`, scheduleData);
+
+    if (scheduleData.length > 0) {
+
+        console.log(`Schedule announcement detected for ${scheduleData[0].event_name}`);
+        return await handleScheduleReactionAdd(reaction, user);
+    }
+
+    console.log(`🔍 Reaction did not match any schedule message, passing to scrim handler.`);
+
+    // scrim availability
     await handleReactionAdd(reaction, user);
 });
 
 client.on(Events.MessageReactionRemove, async (reaction, user) => {
+    if (!reaction.message.guild || user.bot) return; // Ignore bot reactions & ensure it's in a guild
 
-    if (!reaction.message.guild) return; // Ensure it's in a guild
-
-    if (!reaction.message) {
+    // Fetch message if needed
+    if (reaction.message.partial) {
         try {
-            reaction.message = await reaction.message.channel.messages.fetch(reaction.message.id);
+            await reaction.message.fetch();
         } catch (error) {
             console.log("Failed to fetch message:", error);
             return;
         }
     }
 
+    // Check if the reaction belongs to a schedule announcement
+    const scheduleData = await executeQuery(`
+        SELECT event_name FROM schedule WHERE announcement_message_id = ?;
+    `, [reaction.message.id]);
+
+    if (scheduleData.length > 0) {
+        return await handleScheduleReactionRemove(reaction, user);
+    }
+
+    // Scrim availability handling
     await handleReactionRemove(reaction, user);
 });
 

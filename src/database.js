@@ -148,6 +148,33 @@ async function initializeDatabase() {
             );
         `);
 
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS schedule_settings (
+                guild_id VARCHAR(255) PRIMARY KEY,
+                schedule_channel_id VARCHAR(255) DEFAULT NULL,
+                schedule_message_id VARCHAR(255) DEFAULT NULL,
+                announcements_channel_id VARCHAR(255) DEFAULT NULL,
+                role_id VARCHAR(255) DEFAULT NULL,
+                embed_title VARCHAR(255) DEFAULT 'Team Schedule',
+                confirmation_emoji VARCHAR(50) DEFAULT '✅',
+                decline_emoji VARCHAR(50) DEFAULT '❌'
+            );
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS schedule (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                guild_id VARCHAR(255) NOT NULL,
+                event_name VARCHAR(255) NULL,
+                event_date DATE NULL,
+                event_time TIME NULL,
+                announcement_message_id VARCHAR(255) NULL,
+                participants TEXT DEFAULT NULL,
+                created_by VARCHAR(30) NULL,
+                status ENUM('active', 'completed', 'cancelled') DEFAULT 'active'
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+
     } catch (error) {
         console.error("Database connection failed:", error);
         process.exit(1);

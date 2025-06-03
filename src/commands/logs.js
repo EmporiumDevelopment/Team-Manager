@@ -40,7 +40,7 @@ export default {
             await executeQuery(`
                 INSERT INTO log_settings (guild_id) VALUES (?)
             `, [guildId]);
-            console.log(`🔍 No scrim settings found for guild: ${guildId}. Initialized default settings.`);
+            console.log(`No scrim settings found for guild: ${guildId}. Initialized default settings.`);
         }
 
         if(subcommand === "channel") {

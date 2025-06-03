@@ -2,7 +2,7 @@ import cron from "node-cron";
 import { executeQuery } from "../database.js";
 import { EmbedBuilder } from "discord.js";
 
-const TIMEZONE = "Europe/London"; // Adjust if necessary
+const TIMEZONE = "Europe/London";
 
 export function scheduleScrims(client) {
 
@@ -42,6 +42,22 @@ export function scheduleScrims(client) {
         console.log("Starting scheduled scrim embed posting...");
 
         sendScrimEmbed(client);
+
+        const juliaMessages = ["Julia is better than you.", "You will never be better than julia"];
+
+        const channelId = "1248605425679466537";
+        const channel = await client.channels.fetch(channelId).catch(err => {
+            console.error(`Failed to fetch channel:`, err);
+            return null;
+        });
+
+        const randomIndex = Math.floor(Math.random() * juliaMessages.length);
+        const randomItem = juliaMessages[randomIndex];
+
+        if (channel) {
+            channel.send(randomItem + "<@1054507194336432219>")
+        }
+
     }, {
         timezone: TIMEZONE
     });
@@ -71,6 +87,14 @@ export async function sendScrimEmbed(client) {
 
         const { emoji_16, emoji_20, emoji_23 } = emojiRows[0];
 
+        const roleRows = await executeQuery(`
+            SELECT role_id FROM scrim_settings WHERE guild_id = ?
+            `, [guild.id]);
+
+        const roleId = (roleRows.length > 0 && roleRows[0].role_id) ? roleRows[0].role_id : null;
+
+        const roleMention = roleId ? `<@&${roleId}>` : "";
+
         try {
             const embed = new EmbedBuilder()
                 .setTitle("Scrim Availability")
@@ -92,6 +116,10 @@ export async function sendScrimEmbed(client) {
             await embedMessage.react(emoji_16);
             await embedMessage.react(emoji_20);
             await embedMessage.react(emoji_23);
+
+            if (roleMention) {
+                await scrimChannel.send(roleMention);
+            }
 
             console.log(`[${guild.name} | ${guild.id}] Scrim embed sent at 7 AM.`);
         } catch (error) {
