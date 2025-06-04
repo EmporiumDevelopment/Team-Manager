@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, PermissionsBitField, MessageFlags } from "discord.js";
 import { executeQuery } from "../database.js";
 import { sendLogEmbed } from "../utils/logger.js";
+import COLOUR_VALUES from "../utils/colourMap.js";
 
 export default {
     data: new SlashCommandBuilder()
@@ -84,7 +85,12 @@ export default {
                 ON DUPLICATE KEY UPDATE channel_id = VALUES(channel_id)
             `, [guildId, channel.id]);
 
-            await sendLogEmbed(guildId, `Logs channel successfully set to <#${channel.id}> by <@${interaction.user.id}>.`);
+            // send log embed
+            await sendLogEmbed(
+                guildId, 
+                `**Logs Settings Updated**\n\nThe Logs channel has been changed\n\n**New Channel:** <#${channel.id}>\n*By:** <@${interaction.user.id}>.`,
+                COLOUR_VALUES.EDIT
+            );
             if(interaction.deferred || interaction.replied) {
                 return interaction.followUp({ content: `Logs channel successfully set to <#${channel.id}>`, flag: MessageFlags.Ephemeral });
             } else {
@@ -109,7 +115,11 @@ export default {
                 ON DUPLICATE KEY UPDATE embed_title = VALUES(embed_title)
             `, [guildId, title]);
 
-            await sendLogEmbed(interaction.guild.id, `Logs title set to "${title}" by ${interaction.user.tag}.`);
+            await sendLogEmbed(
+                guildId, 
+                `**Log Settings Updated**\n\n The Logs Title has been changed\n\n** New title:** "${title}"\n**By:** ${interaction.user.tag}.`
+                , COLOUR_VALUES.EDIT
+            );
             return interaction.reply({ content: `Logs title set to "${title}".`, ephemeral: true });
         } catch (error) {
             console.error(`Failed to set logs title for server: ${serverName} ID: ${guildId}:`, error);

@@ -133,11 +133,7 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
 
     if (!reaction.message.guild) return; // Ensure it's in a guild
 
-    console.log(`🔍 Reaction detected: ${reaction.emoji.name} by ${user.tag} on message ${reaction.message.id}`);
-
     if(user.bot) return;
-
-    console.log(`🔍 Reaction detected: ${reaction.emoji.name} by ${user.tag}`)
 
     if (reaction.message.partial) {
         try {

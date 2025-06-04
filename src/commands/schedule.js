@@ -289,14 +289,11 @@ export default {
             interaction.editReply({ content: `Successfully updated the ${type} channel to <#${channel.id}>.`, ephemeral: true });
 
             // Send discord log message
-            await sendLogEmbed(guildId, `
-                **Schedule settings update**
-
-                The schedule channel has been updated
-
-                **Channel:** <#${channel.id}>
-                **By:** <@${interaction.user.id}>
-            `, COLOUR_VALUES.EDIT);
+            await sendLogEmbed(
+                guildId, 
+                `**Schedule settings update**\n\nThe schedule channel has been updated\n\n**New Channel:** <#${channel.id}>\n**By:** <@${interaction.user.id}>
+                `, COLOUR_VALUES.EDIT
+            );
                 
             return;
         } catch (error) {
@@ -338,13 +335,11 @@ export default {
             interaction.editReply({ content: `Successfully updated the Schedule Announcements mention role to ${role}.`, ephemeral: true });
 
             // Send discord log message
-            await sendLogEmbed(guildId, `
-                **Schedule settings update**
-                
-                The mention Role for schedule announcements has been change
-                
-                **New Role:** ${role} 
-                **By:** <@${interaction.user.id}>`, COLOUR_VALUES.EDIT);
+            await sendLogEmbed(
+                guildId, 
+                `**Schedule settings update**\n\nThe mention Role for schedule announcements has been change\n\n**New Role:** ${role}\n**By:** <@${interaction.user.id}>`
+                , COLOUR_VALUES.EDIT
+            );
             return;
         } catch (error) {
             console.error(`There was an error updating the schedule role for guild: ${guildId}`, error);
@@ -395,15 +390,11 @@ export default {
             interaction.editReply({ content: `Successfully updated the Schedule Emojis. Confirmation: ${confirmationEmoji}, Decline: ${declineEmoji}.`, ephemeral: true });
 
             // Send discord log message
-            await sendLogEmbed(guildId, `
-                **Schedule settings updated**
-                
-                Reaction emojis for schedule announcements have been updated.
-
-                **Confirmation Emoji:** ${confirmationEmoji}
-                **Decline Emoji:** ${declineEmoji}
-                **By:** ${interaction.user.username}
-                `, COLOUR_VALUES.EDIT);
+            await sendLogEmbed(
+                guildId, 
+                `**Schedule settings updated**\n\nReaction emojis for schedule announcements have been updated.\n\n**Confirmation Emoji:** ${confirmationEmoji}\n**Decline Emoji:** ${declineEmoji}\n**By:** ${interaction.user.username}`, 
+                COLOUR_VALUES.EDIT
+            );
             return;
         } catch (error) {
             console.error(`There was an error updating the schedule emojis for guild: ${guildId}`, error);
@@ -462,16 +453,11 @@ export default {
 
         // send confirmation and logs
         await interaction.editReply({ content: `Event **${eventName}** added for **${eventDate} at ${eventTime}**. Schedule updated.`, ephemeral: true });
-        await sendLogEmbed(guildId, `
-            **Schedule Event Added**
-
-            An event has been added to the schedule.
-
-            **Event Name:** ${eventName}
-            **Date:** ${eventDate}
-            **Time:** ${eventTime}
-            **Added By:** <@${creator}>
-            `, COLOUR_VALUES.ADD);
+        await sendLogEmbed(
+            guildId, 
+            `**Schedule Event Added**\n\nAn event has been added to the schedule.\n\n**Event Name:** ${eventName}\n**Date:** ${eventDate}\n**Time:** ${eventTime}\n**By:** <@${creator}>`, 
+            COLOUR_VALUES.ADD
+        );
     },
 
     async removeEvent(interaction) {
@@ -515,15 +501,11 @@ export default {
             await this.updateScheduleEmbed(interaction);
 
             await interaction.editReply({ content: `Event **${eventId}** has been removed. Schedule updated!`, ephemeral: true });
-            await sendLogEmbed(guildId, `
-                **Schedule Event Removed**
-
-                An event has been removed from the schedule.
-
-                **Event ID:** ${eventId}
-                **Event:** ${eventName[0].event_name}\n
-                **Removed By:** <@${interaction.user.id}>
-                `, COLOUR_VALUES.REMOVE);
+            await sendLogEmbed(
+                guildId, 
+                `**Schedule Event Removed**\n\nAn event has been removed from the schedule.\n\n**Event ID:** ${eventId}\n**Event name:** ${eventName[0].event_name}\n**By:** <@${interaction.user.id}>`, 
+                COLOUR_VALUES.REMOVE
+            );
         } catch(error) {
             console.error(`Error removing event ${eventId} from schedule for guild: ${guildId}`, error);
             await interaction.followUp({ content: "An error occurred while removing the event. Please report this issue.", ephemeral: true });
@@ -614,17 +596,11 @@ export default {
             await this.updateScheduleEmbed(interaction);
 
             // 🔹 Send log message
-            sendLogEmbed(guildId, `
-                **Schedule Event Edited**
-
-                An event has been edited in the schedule.
-
-                **Event ID:** ${eventId}
-                **Event:** ${eventDetails[0].event_name}
-                **Updated Field:** ${type}
-                **New Value:** ${input}
-                **Edited By:** <@${interaction.user.id}>
-                `, COLOUR_VALUES.EDIT);
+            sendLogEmbed(
+                guildId, 
+                `**Schedule Event Edited**\n\nAn event has been edited in the schedule.\n\n**Event ID:** ${eventId}\n**Event name:** ${eventDetails[0].event_name}\n**New Value:** ${input}\n**By:** <@${interaction.user.id}>`, 
+                COLOUR_VALUES.EDIT
+            );
 
             // 🔹 Send confirmation message
             await interaction.editReply({ content: `Event **${eventDetails[0].event_name}** updated: **${type}** changed to **${input}**!`, ephemeral: true });
@@ -668,14 +644,11 @@ export default {
             // Send confirmation and log message
             console.log(`Updated schedule title to: ${title} in guild: ${guildId}`);
             await interaction.editReply({ content: `Successfully updated the schedule title to ${title}.`, ephemeral: true });
-            return sendLogEmbed(guildId, `
-                **Schedule Title Updated**
-
-                The title of the schedule has been updated.
-                
-                **New Title:** ${title}
-                **By:** <@${interaction.user.id}>
-                `, COLOUR_VALUES.EDIT);
+            return sendLogEmbed(
+                guildId, 
+                `**Schedule settings updated**\n\nThe Title of the schedule has been updated.\n\n**New Title:** ${title}\n**By:** <@${interaction.user.id}>`, 
+                COLOUR_VALUES.EDIT
+            );
         } catch (error) {
             console.error(`There was an error updating the schedule channel for guild: ${guildId}`, error);
             return interaction.editReply({ content: `There was an error updating the schedule channel.`, ephemeral: true });
@@ -744,33 +717,24 @@ export default {
                 await this.reindexEvents(interaction);
 
                 // send log
-                sendLogEmbed(guildId, `
-                    **Schedule Event Completed**
-
-                    An event has been marked as completed and removed from the schedule.
-
-                    **ID:** ${id}
-                    **Event Name:** ${eventExists[0].event_name}
-                    **By:** <@${interaction.user.id}>
-                    `, COLOUR_VALUES.REMOVE)
+                sendLogEmbed(
+                    guildId, 
+                    `**Schedule Event Completed**\n\nAn event has been marked as completed and removed from the schedule.\n\n**Event ID:** ${id}\n**Event Name:** ${eventExists[0].event_name}\n**By:** <@${interaction.user.id}>`, 
+                    COLOUR_VALUES.REMOVE
+                );
             } else {
-                sendLogEmbed(guildId, `
-                    **Schedule Event Status Updated**
-
-                    The status of an event has been updated.
-
-                    **ID:** ${id}
-                    **Event Name:** ${eventExists[0].event_name}
-                    **Status:** ${status}
-                    **By:** <@${interaction.user.id}>
-                    `, COLOUR_VALUES.EDIT)
+                sendLogEmbed(
+                    guildId, 
+                    `**Schedule Event Status Updated**\n\nThe status of an event has been updated.\n\n**Event ID:** ${id}\n**Status:** ${status}\n**By:** <@${interaction.user.id}>`, 
+                    COLOUR_VALUES.EDIT
+                );
             }
 
             // update schedule embed
             await this.updateScheduleEmbed(interaction);
 
         } catch (error) {
-            interaction.editReply({ content: `Something went wrong while setting the status of event: ${id} with new status: ${status}, please report this`, ephemeral: true });
+            interaction.editReply({ content: `Something went wrong while setting the status of Event ID: ${id} with new status: ${status}, please report this`, ephemeral: true });
             console.log(`Error occured while setting new status for event id: ${id} with new status ${status} in guild: ${guildId}`, error);
         }
     },
@@ -816,7 +780,7 @@ export default {
             const formattedDate = `${eventDateTime.day.toString().padStart(2, "0")}/${eventDateTime.month.toString().padStart(2, "0")}/${eventDateTime.year.toString().slice(-2)}`;
             const formattedTime = `${eventDateTime.hour.toString().padStart(2, "0")}:${eventDateTime.minute.toString().padStart(2, "0")}`;
 
-            return `**[${event.id}]**\n**Event:** ${event.event_name}\n**Date:** ${formattedDate}\n**Time:** ${formattedTime}\n`;
+            return `**[${event.id}]**\n**Event name:** ${event.event_name}\n**Date:** ${formattedDate}\n**Time:** ${formattedTime}\n`;
         }).join("\n");
 
         if (!eventList) {

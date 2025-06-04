@@ -1,4 +1,6 @@
 import { SlashCommandBuilder, PermissionsBitField } from 'discord.js';
+import { sendLogEmbed } from '../utils/logger';
+import COLOUR_VALUES from '../utils/colourMap';
 
 export default {
     data: new SlashCommandBuilder()
@@ -13,6 +15,9 @@ export default {
                 .setMaxValue(100)),
     
     async execute(interaction) {
+
+        const guildId = interaction.guild.id;
+
         // Get the amount from the interaction
         const amount = interaction.options.getInteger('amount');
 
@@ -28,6 +33,12 @@ export default {
                 content: `Deleted **${amount}** messages!`, 
                 ephemeral: true 
             });
+
+            await sendLogEmbed(
+                guildId,
+                `**Purge**\n\nPurge has been manually triggered\n\n**Channel:** <#${interaction.channel.id}>\n**Messages:** ${amount}\n**By:** <@${interaction.user.id}>`,
+                COLOUR_VALUES.WARNING
+            );
         } catch (error) {
             console.error('Error purging messages:', error);
             await interaction.reply({ 

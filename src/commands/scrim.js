@@ -168,7 +168,12 @@ export default {
             `, [guildId, role.id]);
 
             // Send confirmation message
-            await sendLogEmbed(interaction.guild.id, `Scrim availability role set to ${role} by ${interaction.user.tag}.`, COLOUR_VALUES.EDIT);
+            await sendLogEmbed(
+                guildId, 
+                `**Scrim Settings Updated**\n\n The Scrim availability role has been updated\n**New Role:** ${role}**By:** <@${interaction.user.id}>`, 
+                COLOUR_VALUES.EDIT
+            );
+
             return interaction.reply({ content: `Scrim availability role set to ${role}.`, ephemeral: true });
         } catch (error) {
             console.error(`Failed to set Scrim Availability role for server: ${serverName} ID: ${guildId}:`, error);
@@ -209,7 +214,12 @@ export default {
             `, [guildId, title]);
 
             // Send confirmation message
-            await sendLogEmbed(interaction.guild.id, `Scrim availability embed title set to "${title}" by ${interaction.user.tag}.`, COLOUR_VALUES.EDIT);
+            await sendLogEmbed(
+                guildId, 
+                `**Scrim Settings Updated**\n\nThe Scrim availability title has been updated\n\n**New Title:** ${title}\n**By:** <@${interaction.user.id}>`, 
+                COLOUR_VALUES.EDIT
+            );
+
             return interaction.reply({ content: `Scrim availability embed title set to "${title}".`, ephemeral: true });
         } catch (error) {
             console.error(`Failed to set scrim title for server: ${serverName} ID: ${guildId}:`, error);
@@ -250,7 +260,12 @@ export default {
             `, [guildId, channel.id]);
 
             // Send confirmation message
-            await sendLogEmbed(interaction.guild.id, `Scrim availability channel set to ${channel} by ${interaction.user.tag}.`, COLOUR_VALUES.EDIT);
+            await sendLogEmbed(
+                guildId, 
+                `**Scrim Settings Updated**\n\n The Scrim availability channel has been updated\n**New Channel:** ${channel}**By:** <@${interaction.user.id}>`, 
+                COLOUR_VALUES.EDIT
+            );
+
             return interaction.editReply({ content: `Scrim availability channel set to ${channel}.`, ephemeral: true });
         } catch (error) {
             console.error(`Failed to set Scrim Availability channel for server: ${serverName} ID: ${guildId}:`, error);
@@ -309,7 +324,13 @@ export default {
     
             // Send confirmation message
             await interaction.reply({ content: "Scrim emojis updated successfully!", flags: MessageFlags.Ephemeral });
-            await sendLogEmbed(interaction.guild.id, `Scrim emojis updated by ${interaction.user.username}:\n16 Players: ${emoji16}\n20 Players: ${emoji20}\n23 Players: ${emoji23}`, COLOUR_VALUES.EDIT);
+
+            await sendLogEmbed(
+                guildId, 
+                `**Scrim Settings Updated**\n\n The Scrim emojis have been updated\n\n**16 Players Emoji:** ${emoji16}\n**20 Players Emoji:** ${emoji20}\n**23 Players Emoji:** ${emoji23}\n**By:** <@${interaction.user.id}>`, 
+                COLOUR_VALUES.EDIT
+            );
+
         } catch (error) {
             console.error(`Failed to save scrim emojis for server: ${serverName} ID: ${guildId}:`, error);
             await interaction.reply({ content: "There was an error setting scrim emojis.", flags: MessageFlags.Ephemeral });
@@ -502,7 +523,12 @@ export default {
             await interaction.editReply({ content: "Scrim embed sent successfully!", ephemeral: true });
 
             // send discord log
-            await sendLogEmbed(guildId, `Scrim embed sent by ${interaction.user.tag} in ${scrimChannel}.`, COLOUR_VALUES.ADD);
+            await sendLogEmbed(
+                guildId, 
+                `**Scrim Availability**\n\nThe scrim availability has been sent manually\n\n**Channel:** ${scrimChannel}\n**By:** <@${interaction.user.id}>`, 
+                COLOUR_VALUES.ADD
+            );
+
         } catch (error) {
             console.error(`[${guild.name} | ${guildId}] Error sending scrim embed:`, error);
             await interaction.editReply({ content: "An error occurred while sending the scrim embed.", ephemeral: true });

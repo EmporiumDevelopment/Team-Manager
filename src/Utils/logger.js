@@ -3,7 +3,7 @@ import { executeQuery } from "../database.js";
 import client from "../index.js";
 import COLOUR_VALUES from "../utils/colourMap.js";
 
-export async function sendLogEmbed(guildId, logMessage, action = "default") {
+export async function sendLogEmbed(guildId, logMessage, embedColour = COLOUR_VALUES.DEFAULT) {
 
     if (!guildId || typeof guildId !== "string") {
         console.error("Error: guildId is invalid or missing.");
@@ -12,8 +12,6 @@ export async function sendLogEmbed(guildId, logMessage, action = "default") {
 
     const guild = await client.guilds.fetch(guildId);
     const serverName = guild ? guild.name : "Unknown Server";
-
-    action = typeof action === "string" ? action.toUpperCase() : "DEFAULT";
 
     try {
 
@@ -41,11 +39,11 @@ export async function sendLogEmbed(guildId, logMessage, action = "default") {
             // as this channel no longer exists
             if (!logChannel) {
                 console.log(`Log channel not found for server: ${serverName} ID: ${guildId}`);
-                await executeQuery(`UPDATE log_settings SET channel_id = NULL WHERE guild_id = ?`, [guildId]);
+                await executeQuery(`
+                    UPDATE log_settings SET channel_id = NULL WHERE guild_id = ?
+                    `, [guildId]);
                 return;
             }
-
-            const embedColour = COLOUR_VALUES[action.toUpperCase()] ?? COLOUR_VALUES.DEFAULT;
 
             // 🔹 Create the embed
             const logEmbed = new EmbedBuilder()
