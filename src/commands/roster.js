@@ -1,7 +1,12 @@
-import { SlashCommandBuilder, EmbedBuilder, PermissionsBitField, MessageFlags } from "discord.js";
+import { SlashCommandBuilder, EmbedBuilder, PermissionsBitField, MessageFlags, AttachmentBuilder } from "discord.js";
 import { executeQuery } from "../database.js";
 import { sendLogEmbed } from "../utils/logger.js";
 import COLOUR_VALUES from "../utils/colourMap.js";
+
+import path from "path";
+
+const imagePath = path.resolve("src", "assets", "roster_image.jpg");
+const imageAttachment = new AttachmentBuilder(imagePath);
 
 export default {
     data: new SlashCommandBuilder()
@@ -101,6 +106,11 @@ export default {
                         .setRequired(true)
                 )
         )
+        // seperate sub command for festina
+        .addSubcommand(subcommand =>
+            subcommand.setName('embed')
+                .setDescription('Set the embed picture for the roster embed')
+        )
         // emojis
         .addSubcommand(subcommand =>
             subcommand.setName('emojis')
@@ -182,6 +192,15 @@ export default {
             } else if (subcommand === 'emojis') {
                 await this.setRosterEmojis(interaction);
             }
+
+            if(subcommand === 'embed') {
+
+                const embed = new EmbedBuilder()
+                    .setImage('attachment://roster_image.jpg')
+                    .setColor(0xFFFFFF)
+                await rosterChannel.send({ embeds: [embed], files: [imageAttachment] });
+                await interaction.reply({ content: "Roster embed image has been sent to the roster channel.", ephemeral: true, files: [imageAttachment] });
+            }
         },
         
         async addPlayer(interaction) {
@@ -236,7 +255,7 @@ export default {
                 // Log the addition
                 await sendLogEmbed(
                     guildId, 
-                    `**Roster Addition**\n\nA new player has been added to the roster\n\n**Player:** ${user}\n\n**Role:** ${role}**By:** <@${interaction.user.id}>.`
+                    `**Roster Addition**\n\nA new player has been added to the roster\n\n**Player:** ${user}\n\n**Role:** ${role}\n**By:** <@${interaction.user.id}>.`
                     , COLOUR_VALUES.ADD
                 );
                 await interaction.reply({ content: `<@${user.id}> has been added to the roster as ${level}!`, ephemeral: true });
@@ -431,7 +450,7 @@ export default {
                     `**Roster Settings Updated**\n\nThe roster title has been updated\n\n**New title:** ${newTitle}\n**By:** <@${interaction.user.id}>.`, 
                     COLOUR_VALUES.EDIT
                 );
-                await interaction.reply({ content: `Roster title updated to **${newTitle}**!`, flag: MessageFlags.ephemeral });
+                await interaction.reply({ content: `Roster title updated to **${newTitle}**!`, ephemeral: true });
             
                 // After updating the title, check if the roster channel exists and update the embed
                 const channelRows = await executeQuery(`
@@ -443,7 +462,7 @@ export default {
                 }
             } catch (error) {
                 console.error(`Failed to set roster title for server: ${serverName} ID: ${guildId}:`, error);
-                return interaction.reply({ content: "An error occurred while setting the roster title.", flag: MessageFlags.Ephemeral });
+                return interaction.reply({ content: "An error occurred while setting the roster title.", ephemeral: true });
             }
         },
 
@@ -543,7 +562,7 @@ export default {
                 return interaction.reply({ content: "Roster has been restored", ephemeral: true });
             } catch (error) {
                 console.error(`Failed to fix roster for server: ${serverName} ID: ${guildId}:`, error);
-                return interaction.reply({ content: "An error occurred while fixing the roster.", flag: MessageFlags.Ephemeral });
+                return interaction.reply({ content: "An error occurred while fixing the roster.", ephemeral: true });
             }
         },
 
@@ -604,7 +623,7 @@ export default {
                 });
                 } catch (error) {
                 console.error(`Failed to edit roster for server: ${serverName} ID: ${guildId}:`, error);
-                return interaction.reply({ content: "An error occurred while editing the roster.", flag: MessageFlags.Ephemeral });
+                return interaction.reply({ content: "An error occurred while editing the roster.", ephemeral: true });
             }
         },
 
@@ -677,10 +696,10 @@ export default {
                     `**Roster Settings Updated**\n\nThe Roster channel has been updated\n**Channel:** ${rosterChannel}\n**By:** <@${interaction.user.id}>.`, 
                     COLOUR_VALUES.ADD
                 );
-                return interaction.reply({ content: `Roster channel successfully set! The roster embed has been sent to <#${rosterChannel.id}>`, flag: MessageFlags.Ephemeral });
+                return interaction.reply({ content: `Roster channel successfully set! The roster embed has been sent to <#${rosterChannel.id}>`, ephemeral: true });
             } catch (error) {
                 console.error(`Failed to set roster channel for server: ${serverName} ID: ${guildId}:`, error);
-                return interaction.reply({ content: "An error occurred while setting up the roster channel.", flag: MessageFlags.Ephemeral });
+                return interaction.reply({ content: "An error occurred while setting up the roster channel.", ephemeral: true });
             }
         },
 
@@ -747,7 +766,7 @@ export default {
             });
             } catch (error) {
                 console.error(`Failed to set roster emojis for server: ${serverName} ID: ${guildId}:`, error);
-                return interaction.reply({ content: "An error occurred while setting the roster emojis.", flag: MessageFlags.Ephemeral });
+                return interaction.reply({ content: "An error occurred while setting the roster emojis.", ephemeral: true });
             }
         },
 

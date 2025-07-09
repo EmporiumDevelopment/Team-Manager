@@ -3,6 +3,7 @@ import { executeQuery } from "../database.js";
 import { sendLogEmbed } from "../utils/logger.js";
 import { DateTime } from "luxon";
 import COLOUR_VALUES from "../utils/colourMap.js"
+import { announceTodaysEvents } from "../utils/schedule/scheduleUtils.js";
 
 export default {
     data: new SlashCommandBuilder()
@@ -22,6 +23,16 @@ export default {
                             { name: 'Announcements', value: 'announcements' }
                         )
                 )
+                .addStringOption(option =>
+                    option.setName("team-type")
+                        .setDescription("The team you want to setup scrim availability for. (mixed/female)")
+                        .setRequired(true)
+                        .addChoices(
+                            { name: "Mixed", value: "mixed" },
+                            { name: "Female", value: "female" },
+                            { name: "Clan", value: "clan" }
+                    )
+                )
                 .addChannelOption(option =>
                     option.setName('channel')
                         .setDescription('The channel to be set.')
@@ -33,6 +44,16 @@ export default {
             subcommand
                 .setName('role')
                 .setDescription('Set the role for schedule announcements')
+                .addStringOption(option =>
+                    option.setName("team-type")
+                        .setDescription("The team you want to setup scrim availability for. (mixed/female)")
+                        .setRequired(true)
+                        .addChoices(
+                            { name: "Mixed", value: "mixed" },
+                            { name: "Female", value: "female" },
+                            { name: "Clan", value: "clan" }
+                    )
+                )
                 .addRoleOption(option =>
                     option.setName('role')
                         .setDescription('The role to be set.')
@@ -61,6 +82,16 @@ export default {
             .setName("add")
             .setDescription("Add an event to the schedule.")
             .addStringOption(option =>
+                option.setName("team-type")
+                    .setDescription("The team you want to setup scrim availability for. (mixed/female)")
+                    .setRequired(true)
+                    .addChoices(
+                        { name: "Mixed", value: "mixed" },
+                        { name: "Female", value: "female" },
+                        { name: "Clan", value: "clan" }
+                )
+            )
+            .addStringOption(option =>
                 option.setName("event-name")
                 .setDescription("The name of the event being added to the schedule.")
                 .setRequired(true)
@@ -72,7 +103,7 @@ export default {
             )
             .addStringOption(option =>
                 option.setName("event-time")
-                .setDescription("Event time (HH/MM)")
+                .setDescription("Event time (HH:mm)")
                 .setRequired(true)
             )
         )
@@ -81,6 +112,16 @@ export default {
             subcommand
             .setName("remove")
             .setDescription("Remove an event from the schedule")
+            .addStringOption(option =>
+                    option.setName("team-type")
+                        .setDescription("The team you want to setup scrim availability for. (mixed/female)")
+                        .setRequired(true)
+                        .addChoices(
+                            { name: "Mixed", value: "mixed" },
+                            { name: "Female", value: "female" },
+                            { name: "Clan", value: "clan" }
+                    )
+                )
             .addIntegerOption(option =>
                 option.setName("id")
                 .setDescription("The ID of the event you would like to remove (left side of the event in the schedule).")
@@ -92,6 +133,16 @@ export default {
             subcommand
             .setName("edit")
             .setDescription("Edit an event in the schedule.")
+            .addStringOption(option =>
+                option.setName("team-type")
+                    .setDescription("The team you want to setup scrim availability for. (mixed/female)")
+                    .setRequired(true)
+                    .addChoices(
+                        { name: "Mixed", value: "mixed" },
+                        { name: "Female", value: "female" },
+                        { name: "Clan", value: "clan" }
+                )
+            )
             // event ID
             .addIntegerOption(option =>
                 option.setName("id")
@@ -122,6 +173,16 @@ export default {
             .setName("title")
             .setDescription("Change the title of the schedule.")
             .addStringOption(option =>
+                option.setName("team-type")
+                    .setDescription("The team you want to edit the schedule title for. (mixed/female/clan)")
+                    .setRequired(true)
+                    .addChoices(
+                        { name: "Mixed", value: "mixed" },
+                        { name: "Female", value: "female" },
+                        { name: "Clan", value: "clan" }
+                )
+            )
+            .addStringOption(option =>
                 option
                 .setName("title")
                 .setDescription("New value to replace the title of the current schedule.")
@@ -133,6 +194,16 @@ export default {
             subcommand
             .setName("setstatus")
             .setDescription("change the status of an existing event.")
+            .addStringOption(option =>
+                option.setName("team-type")
+                    .setDescription("The team you want to edit the schedule status for. (mixed/female/clan)")
+                    .setRequired(true)
+                    .addChoices(
+                        { name: "Mixed", value: "mixed" },
+                        { name: "Female", value: "female" },
+                        { name: "Clan", value: "clan" }
+                )
+            )
             // event id
             .addIntegerOption(option => 
                 option
@@ -152,6 +223,22 @@ export default {
                     )
             )
 
+        )
+        // announce
+        .addSubcommand(subcommand => 
+            subcommand
+            .setName("announce")
+            .setDescription("Back up command for announcing scheduled events")
+            .addStringOption(option =>
+                option.setName("team-type")
+                .setDescription("The team you want to announce the schedule for. (mixed/female/clan)")
+                .addChoices(
+                    { name: "Mixed", value: "mixed" },
+                    { name: "Female", value: "female" },
+                    { name: "Clan", value: "clan" }
+                )
+                .setRequired(true)
+            )
         ),
 
     async execute(interaction) {
@@ -165,16 +252,46 @@ export default {
         }
 
         // Check if schedule settings exist for the guild
-        const scheduleSettings = await executeQuery(`
-            SELECT * FROM schedule_settings WHERE guild_id = ?
+        const mixedScheduleSettings = await executeQuery(`
+            SELECT * FROM mixed_schedule_settings WHERE guild_id = ?
         `, [guild.id]);
 
         // If no settings exist, create a new entry
-        if(scheduleSettings.length === 0) {
+        if(mixedScheduleSettings.length === 0) {
             console.log(`No schedule settings found for guild: ${guild.id}, creating new entry.`);
             // Insert a new entry for the guild
             await executeQuery(`
-                INSERT INTO schedule_settings (guild_id)
+                INSERT INTO mixed_schedule_settings (guild_id)
+                VALUES (?)
+            `, [guild.id]);
+        }
+
+        // Check if schedule settings exist for the guild
+        const femaleScheduleSettings = await executeQuery(`
+            SELECT * FROM female_schedule_settings WHERE guild_id = ?
+        `, [guild.id]);
+
+        // If no settings exist, create a new entry
+        if(femaleScheduleSettings.length === 0) {
+            console.log(`No schedule settings found for guild: ${guild.id}, creating new entry.`);
+            // Insert a new entry for the guild
+            await executeQuery(`
+                INSERT INTO female_schedule_settings (guild_id)
+                VALUES (?)
+            `, [guild.id]);
+        }
+
+        // Check if schedule settings exist for the guild
+        const clanScheduleSettings = await executeQuery(`
+            SELECT * FROM clan_schedule_settings WHERE guild_id = ?
+        `, [guild.id]);
+
+        // If no settings exist, create a new entry
+        if(clanScheduleSettings.length === 0) {
+            console.log(`No schedule settings found for guild: ${guild.id}, creating new entry.`);
+            // Insert a new entry for the guild
+            await executeQuery(`
+                INSERT INTO clan_schedule_settings (guild_id)
                 VALUES (?)
             `, [guild.id]);
         }
@@ -210,6 +327,13 @@ export default {
         if(subcommand === "setstatus") {
             await this.setStatus(interaction);
         }
+
+        if(subcommand === "announce") {
+
+            // new to verify valid team type
+            const team = interaction.options.getString("team-type");
+            await announceTodaysEvents(guild, guild.client, team);
+        }
     },
 
     async setChannel(interaction) {
@@ -217,6 +341,7 @@ export default {
         const type = interaction.options.getString('type');
         const channel = interaction.options.getChannel('channel');
 
+        const team = interaction.options.getString("team-type");
         const guild = interaction.guild;
         const guildId = guild.id;
 
@@ -231,6 +356,10 @@ export default {
             return interaction.reply({ content: 'Invalid type specified. Valid types are: schedule, announcements.', ephemeral: true });
         }
 
+        if(!team) {
+            return interaction.reply({ content: 'You must specify a team type.', ephemeral: true });
+        }
+
         if(!channel) {
             return interaction.reply({ content: 'You must specify a channel to set.', ephemeral: true });
         }
@@ -242,13 +371,13 @@ export default {
         }
 
         // Defer the reply to allow time for processing
-        await interaction.deferReply();
+        await interaction.deferReply({ ephemeral: true });
 
         // Update the channel in the database
         try {
             // Insert or update the channel id in the schedule_settings table
             await executeQuery(`
-                INSERT INTO schedule_settings (guild_id, ${type}_channel_id)
+                INSERT INTO ${team}_schedule_settings (guild_id, ${type}_channel_id)
                 VALUES (?, ?)
                 ON DUPLICATE KEY UPDATE ${type}_channel_id = VALUES(${type}_channel_id);
             `, [guildId, channel.id]);
@@ -257,7 +386,7 @@ export default {
             if(type === 'schedule') {
 
                 const scheduleSettings = await executeQuery(`
-                    SELECT * FROM schedule_settings WHERE guild_id = ?
+                    SELECT * FROM ${team}_schedule_settings WHERE guild_id = ?
                 `, [guildId]);
 
                 const title = scheduleSettings[0]?.embed_title || 'Team Schedule';
@@ -278,7 +407,7 @@ export default {
 
                 // Save the schedule embed message ID to the database
                 await executeQuery(`
-                    INSERT INTO schedule_settings (guild_id, schedule_message_id)
+                    INSERT INTO ${team}_schedule_settings (guild_id, schedule_message_id)
                     VALUES (?, ?)
                     ON DUPLICATE KEY UPDATE schedule_message_id = VALUES(schedule_message_id);
                 `, [guildId, fetchedChannel.lastMessageId]);
@@ -291,7 +420,7 @@ export default {
             // Send discord log message
             await sendLogEmbed(
                 guildId, 
-                `**Schedule settings update**\n\nThe schedule channel has been updated\n\n**New Channel:** <#${channel.id}>\n**By:** <@${interaction.user.id}>
+                `**Schedule settings update**\n\nThe schedule channel has been updated for ${team}\n\n**New Channel:** <#${channel.id}>\n**By:** <@${interaction.user.id}>
                 `, COLOUR_VALUES.EDIT
             );
                 
@@ -305,6 +434,7 @@ export default {
     async setRole(interaction) {
 
         const role = interaction.options.getRole('role');
+        const team = interaction.options.getString("team-type");
 
         const guild = interaction.guild;
         const guildId = guild.id;
@@ -314,18 +444,22 @@ export default {
             return interaction.reply({ content: 'You must specify a role to set.', ephemeral: true });
         }
 
+        if(!team) {
+            return interaction.reply({ content: 'You must specify a team type.', ephemeral: true });
+        }
+
         // Check if the role exists in the guild
         if(!interaction.guild.roles.cache.has(role.id)) {
             return interaction.reply({ content: 'The specified role does not exist in this guild.', ephemeral: true });
         }
 
         // Defer the reply to allow time for processing
-        await interaction.deferReply();
+        await interaction.deferReply({ ephemeral: true });
 
         // Update the role in the database
         try {
             await executeQuery(`
-                INSERT INTO schedule_settings (guild_id, role_id)
+                INSERT INTO ${team}_schedule_settings (guild_id, role_id)
                 VALUES (?, ?)
                 ON DUPLICATE KEY UPDATE role_id = VALUES(role_id);
             `, [guildId, role.id]);
@@ -337,7 +471,7 @@ export default {
             // Send discord log message
             await sendLogEmbed(
                 guildId, 
-                `**Schedule settings update**\n\nThe mention Role for schedule announcements has been change\n\n**New Role:** ${role}\n**By:** <@${interaction.user.id}>`
+                `**Schedule settings update**\n\nThe mention Role for schedule announcements has been changed for ${team}\n\n**New Role:** ${role}\n**By:** <@${interaction.user.id}>`
                 , COLOUR_VALUES.EDIT
             );
             return;
@@ -375,7 +509,7 @@ export default {
         }
 
         // Defer the reply to allow time for processing
-        await interaction.deferReply();
+        await interaction.deferReply({ ephemeral: true });
 
         // Update the emojis in the database
         try {
@@ -407,12 +541,17 @@ export default {
         const guild = interaction.guild;
         const guildId = guild.id;
 
+        const team = interaction.options.getString("team-type");
         const eventName = interaction.options.getString("event-name");
         const eventDate = interaction.options.getString("event-date");
         const eventTime = interaction.options.getString("event-time");
         const creator = interaction.user.id;
 
         // 🔹 Validate user input
+        if(!team) {
+            return interaction.reply({ content: "You must specify a team type.", ephemeral: true });
+        }
+
         if (!eventName) {
             return interaction.reply({ content: "You need to enter an event name.", ephemeral: true });
         }
@@ -425,7 +564,7 @@ export default {
             return interaction.reply({ content: "Invalid time format. Use HH:mm (Example: 20:00)", ephemeral: true });
         }
 
-        await interaction.deferReply();
+        await interaction.deferReply({ ephemeral: true });
 
         // 🔹 Convert user input date to MySQL format (`YYYY-MM-DD`)
         const [day, month, year] = eventDate.split("/");
@@ -441,21 +580,21 @@ export default {
         const mysqlFormattedTime = cetEventTime.toFormat("HH:mm:ss");
 
         await executeQuery(`
-            INSERT INTO schedule (guild_id, event_name, event_date, event_time, created_by)
+            INSERT INTO ${team}_schedule (guild_id, event_name, event_date, event_time, created_by)
             VALUES (?, ?, ?, ?, ?);
         `, [guildId, eventName, cetEventTime.toISODate(), mysqlFormattedTime, creator]);
 
         // reindex IDs before sending updated embed
-        await this.reindexEvents(interaction);
+        await this.reindexEvents(interaction, team);
 
         // update schedule
-        await this.updateScheduleEmbed(interaction);
+        await this.updateScheduleEmbed(interaction, team);
 
         // send confirmation and logs
         await interaction.editReply({ content: `Event **${eventName}** added for **${eventDate} at ${eventTime}**. Schedule updated.`, ephemeral: true });
         await sendLogEmbed(
             guildId, 
-            `**Schedule Event Added**\n\nAn event has been added to the schedule.\n\n**Event Name:** ${eventName}\n**Date:** ${eventDate}\n**Time:** ${eventTime}\n**By:** <@${creator}>`, 
+            `**Schedule Event Added**\n\nAn event has been added to the ${team} schedule.\n\n**Event Name:** ${eventName}\n**Date:** ${eventDate}\n**Time:** ${eventTime}\n**By:** <@${creator}>`, 
             COLOUR_VALUES.ADD
         );
     },
@@ -465,17 +604,22 @@ export default {
         const guild = interaction.guild;
         const guildId = guild.id;
 
+        const team = interaction.options.getString("team-type");
         const eventId = interaction.options.getInteger("id");
 
         // validate user input
+        if(!team) {
+            return interaction.reply({ content: "You must specify a team type.", ephemeral: true });
+        }
+
         if(!eventId) {
             return interaction.reply({ content: "You must provide a valid event ID, they are on the left side of each event in the schedule list.", ephemeral: true});
         }
 
-        await interaction.deferReply();
+        await interaction.deferReply({ ephemeral: true });
 
         const eventExists = await executeQuery(`
-            SELECT id FROM schedule WHERE guild_id = ? AND id = ?;
+            SELECT id FROM ${team}_schedule WHERE guild_id = ? AND id = ?;
             `, [guildId, eventId]);
 
         if(!eventExists.length) {
@@ -484,26 +628,26 @@ export default {
 
         // event is already verified and every event needs a name so no need to verify eventName
         const eventName = await executeQuery(`
-            SELECT event_name FROM schedule WHERE guild_id = ? AND id = ?;
+            SELECT event_name FROM ${team}_schedule WHERE guild_id = ? AND id = ?;
             `, [guildId, eventId]);
 
         try {
 
             // remove event from database
             await executeQuery(`
-                DELETE FROM schedule WHERE guild_id = ? AND id = ?;
+                DELETE FROM ${team}_schedule WHERE guild_id = ? AND id = ?;
                 `, [guildId, eventId]);
 
             // reindex IDs before sending updated embed
-            await this.reindexEvents(interaction);
+            await this.reindexEvents(interaction, team);
 
             // update schedule embed
-            await this.updateScheduleEmbed(interaction);
+            await this.updateScheduleEmbed(interaction, team);
 
             await interaction.editReply({ content: `Event **${eventId}** has been removed. Schedule updated!`, ephemeral: true });
             await sendLogEmbed(
                 guildId, 
-                `**Schedule Event Removed**\n\nAn event has been removed from the schedule.\n\n**Event ID:** ${eventId}\n**Event name:** ${eventName[0].event_name}\n**By:** <@${interaction.user.id}>`, 
+                `**Schedule Event Removed**\n\nAn event has been removed from the ${team} schedule.\n\n**Event ID:** ${eventId}\n**Event name:** ${eventName[0].event_name}\n**By:** <@${interaction.user.id}>`, 
                 COLOUR_VALUES.REMOVE
             );
         } catch(error) {
@@ -522,11 +666,16 @@ export default {
             return interaction.reply({ content: "An error occurred while editing the event. Please report this.", ephemeral: true });
         }
 
+        const team = interaction.options.getString("team-type");
         const eventId = interaction.options.getInteger("id");
         let type = interaction.options.getString("type");
         const input = interaction.options.getString("input");
 
         // 🔹 Validate user input
+        if(!team) {
+            return interaction.reply({ content: "You must specify a team type.", ephemeral: true });
+        }
+
         if (!eventId) {
             return interaction.reply({ content: "You must provide the ID of the event you want to edit. (Displayed on the left side of each event in the schedule)", ephemeral: true });
         }
@@ -539,7 +688,7 @@ export default {
             return interaction.reply({ content: "You must enter a new value to replace the current value.", ephemeral: true });
         }
 
-        await interaction.deferReply();
+        await interaction.deferReply({ ephemeral: true });
 
         // 🔹 Normalize type input to prevent validation issues
         type = type.trim().toLowerCase();
@@ -550,7 +699,7 @@ export default {
 
         // 🔹 Fetch the current event
         const eventDetails = await executeQuery(`
-            SELECT event_name, event_date, event_time FROM schedule WHERE guild_id = ? AND id = ?;
+            SELECT event_name, event_date, event_time FROM ${team}_schedule WHERE guild_id = ? AND id = ?;
         `, [guildId, eventId]);
 
         if (!eventDetails.length) {
@@ -563,7 +712,7 @@ export default {
 
             // 🔹 Determine which field to update
             if (type === "name") {
-                updateQuery = `UPDATE schedule SET event_name = ? WHERE guild_id = ? AND id = ?;`;
+                updateQuery = `UPDATE ${team}_schedule SET event_name = ? WHERE guild_id = ? AND id = ?;`;
                 updateParams = [input, guildId, eventId];
 
             } else if (type === "date") {
@@ -573,7 +722,7 @@ export default {
 
                 const [day, month, year] = input.split("/");
                 const formattedDate = `20${year}-${month}-${day}`;
-                updateQuery = `UPDATE schedule SET event_date = ? WHERE guild_id = ? AND id = ?;`;
+                updateQuery = `UPDATE ${team}_schedule SET event_date = ? WHERE guild_id = ? AND id = ?;`;
                 updateParams = [formattedDate, guildId, eventId];
 
             } else if (type === "time") {
@@ -582,7 +731,7 @@ export default {
                 }
 
                 const formattedTime = `${input}:00`;
-                updateQuery = `UPDATE schedule SET event_time = ? WHERE guild_id = ? AND id = ?;`;
+                updateQuery = `UPDATE ${team}_schedule SET event_time = ? WHERE guild_id = ? AND id = ?;`;
                 updateParams = [formattedTime, guildId, eventId];
             }
 
@@ -590,15 +739,15 @@ export default {
             await executeQuery(updateQuery, updateParams);
 
             // reindex IDs before sending updated embed
-            await this.reindexEvents(interaction);
+            await this.reindexEvents(interaction, team);
 
             // 🔹 Update the schedule embed
-            await this.updateScheduleEmbed(interaction);
+            await this.updateScheduleEmbed(interaction, team);
 
             // 🔹 Send log message
             sendLogEmbed(
                 guildId, 
-                `**Schedule Event Edited**\n\nAn event has been edited in the schedule.\n\n**Event ID:** ${eventId}\n**Event name:** ${eventDetails[0].event_name}\n**New Value:** ${input}\n**By:** <@${interaction.user.id}>`, 
+                `**Schedule Event Edited**\n\nAn event has been edited in the ${team} schedule.\n\n**Event ID:** ${eventId}\n**Event name:** ${eventDetails[0].event_name}\n**New Value:** ${input}\n**By:** <@${interaction.user.id}>`, 
                 COLOUR_VALUES.EDIT
             );
 
@@ -620,38 +769,43 @@ export default {
             return interaction.reply("There was an error while trying to change the title of the schedule, please report this.");
         }
 
+        const team = interaction.options.getString("team-type");
         const title = interaction.options.getString("title");
 
         // validate user input
+        if(!team) {
+            return interaction.reply("You must specify a team type for the schedule title.");
+        }
+
         if(!title) {
             return interaction.reply("The title for the schedule can not be empty.")
         }
 
-        await interaction.deferReply();
+        await interaction.deferReply({ ephemeral: true });
 
         try {
 
             // update in database
             await executeQuery(`
-                INSERT INTO schedule_settings (guild_id, embed_title)
+                INSERT INTO ${team}_schedule_settings (guild_id, embed_title)
                 VALUES (?, ?)
                 ON DUPLICATE KEY UPDATE embed_title = VALUES(embed_title)
                 `, [guildId, title]);
 
             // update schedule
-            await this.updateScheduleEmbed(interaction);
+            await this.updateScheduleEmbed(interaction, team);
 
             // Send confirmation and log message
             console.log(`Updated schedule title to: ${title} in guild: ${guildId}`);
-            await interaction.editReply({ content: `Successfully updated the schedule title to ${title}.`, ephemeral: true });
+            await interaction.editReply({ content: `Successfully updated the ${team} schedule title to ${title}.`, ephemeral: true });
             return sendLogEmbed(
                 guildId, 
-                `**Schedule settings updated**\n\nThe Title of the schedule has been updated.\n\n**New Title:** ${title}\n**By:** <@${interaction.user.id}>`, 
+                `**Schedule settings updated**\n\nThe Title of the ${team} schedule has been updated.\n\n**New Title:** ${title}\n**By:** <@${interaction.user.id}>`, 
                 COLOUR_VALUES.EDIT
             );
         } catch (error) {
             console.error(`There was an error updating the schedule channel for guild: ${guildId}`, error);
-            return interaction.editReply({ content: `There was an error updating the schedule channel.`, ephemeral: true });
+            return interaction.editReply({ content: `There was an error updating the ${team} schedule channel.`, ephemeral: true });
         }
     },
 
@@ -666,7 +820,13 @@ export default {
             return interaction.reply("There was an error while trying to change the status of the event, please report this.");
         }
 
+        const team = interaction.options.getString("team-type");
         const id = interaction.options.getInteger("id");
+
+        // validate user input
+        if(!team) {
+            return interaction.reply({ content: "You must specify a team type for the schedule status.", ephemeral: true });
+        }
 
         if(!id) {
             return interaction.reply({ content: "You need to specify the ID of the event you would like to change the status of. (ID of each event is displayed in the schedule)", ephemeral: true });
@@ -684,22 +844,22 @@ export default {
             return interaction.reply({ content: `Invalid status: ${status}, please choose an option from the list. (active, completed or cancelled)`, ephemeral: true });
         }
 
-        await interaction.deferReply();
+        await interaction.deferReply({ ephemeral: true });
 
         try {
 
             const eventExists = await executeQuery(`
-                SELECT event_name FROM schedule WHERE id = ? AND guild_id = ?
+                SELECT event_name FROM ${team}_schedule WHERE id = ? AND guild_id = ?
                 `, [id, guildId]);
 
             // check if the event exists
             if(!eventExists.length) {
-                return interaction.editReply({ content: `No event with the ID: ${id} exists, please check the schedule for valid event IDs`, ephemeral: true });
+                return interaction.editReply({ content: `No event with the ID: ${id} exists, please check the ${team} schedule for valid event IDs`, ephemeral: true });
             }
 
             // update the database
             await executeQuery(`
-                UPDATE schedule SET status = ? WHERE id = ?;
+                UPDATE ${team}_schedule SET status = ? WHERE id = ?;
             `, [status, id]);
 
             // send confirmation and logs
@@ -710,16 +870,16 @@ export default {
 
                 // remove from database
                 await executeQuery(`
-                    DELETE FROM schedule WHERE id = ? AND guild_id = ?
+                    DELETE FROM ${team}_schedule WHERE id = ? AND guild_id = ?
                     `, [id, guildId]);
 
                 // reindex stored events
-                await this.reindexEvents(interaction);
+                await this.reindexEvents(interaction, team);
 
                 // send log
                 sendLogEmbed(
                     guildId, 
-                    `**Schedule Event Completed**\n\nAn event has been marked as completed and removed from the schedule.\n\n**Event ID:** ${id}\n**Event Name:** ${eventExists[0].event_name}\n**By:** <@${interaction.user.id}>`, 
+                    `**Schedule Event Completed**\n\nAn event has been marked as completed and removed from the ${team} schedule.\n\n**Event ID:** ${id}\n**Event Name:** ${eventExists[0].event_name}\n**By:** <@${interaction.user.id}>`, 
                     COLOUR_VALUES.REMOVE
                 );
             } else {
@@ -731,7 +891,7 @@ export default {
             }
 
             // update schedule embed
-            await this.updateScheduleEmbed(interaction);
+            await this.updateScheduleEmbed(interaction, team);
 
         } catch (error) {
             interaction.editReply({ content: `Something went wrong while setting the status of Event ID: ${id} with new status: ${status}, please report this`, ephemeral: true });
@@ -739,13 +899,14 @@ export default {
         }
     },
 
-    async updateScheduleEmbed(interaction) {
+    async updateScheduleEmbed(interaction, team) {
 
         const guildId = interaction.guild.id;
+        if(!team) return;
 
         const scheduleSettings = await executeQuery(`
             SELECT schedule_channel_id, schedule_message_id, embed_title
-            FROM schedule_settings
+            FROM ${team}_schedule_settings
             WHERE guild_id = ?;
         `, [guildId]);
 
@@ -766,7 +927,7 @@ export default {
             SELECT id, event_name, 
                 DATE_FORMAT(event_date, '%Y-%m-%d') AS event_date, 
                 DATE_FORMAT(event_time, '%H:%i:%s') AS event_time
-            FROM schedule
+            FROM ${team}_schedule
             WHERE guild_id = ?
             ORDER BY event_date, event_time;
         `, [guildId]);
@@ -780,7 +941,7 @@ export default {
             const formattedDate = `${eventDateTime.day.toString().padStart(2, "0")}/${eventDateTime.month.toString().padStart(2, "0")}/${eventDateTime.year.toString().slice(-2)}`;
             const formattedTime = `${eventDateTime.hour.toString().padStart(2, "0")}:${eventDateTime.minute.toString().padStart(2, "0")}`;
 
-            return `**[${event.id}]**\n**Event name:** ${event.event_name}\n**Date:** ${formattedDate}\n**Time:** ${formattedTime}\n`;
+            return `-# [${event.id}]\n## ${event.event_name}\n> **Date:** ${formattedDate}\n> **Time:** ${formattedTime}`;
         }).join("\n");
 
         if (!eventList) {
@@ -796,57 +957,77 @@ export default {
         await scheduleMessage.edit({ embeds: [updatedEmbed] });
     },
 
-    async reindexEvents(interaction) {
+    async reindexEvents(interaction, team) {
 
         const guildId = interaction.guild.id;
 
+        if (!guildId || !team) {
+            console.log("Invalid guild ID or team when reindexing.");
+            return;
+        }
+
         try {
-            if (!guildId) {
-                console.log("Invalid Guild ID when reindexing schedule events.");
-                return;
-            }
-
-            // Fetch all events ordered correctly
-            const events = await executeQuery(`
-                SELECT id FROM schedule WHERE guild_id = ? ORDER BY event_date, event_time;
-            `, [guildId]);
-
-            if (!events.length) {
-                console.warn(`No events found for guild: ${guildId}, skipping reindexing.`);
-                return;
-            }
-
-            // Use a transaction to safely update IDs
+            // Use a transaction to safely update the event order
             await executeQuery(`START TRANSACTION;`);
 
-            // Step 1: Create a new temporary table to hold reordered events
-            await executeQuery(`CREATE TEMPORARY TABLE schedule_reindexed LIKE schedule;`);
+            // Step 1: Drop any existing temporary reindex table
+            await executeQuery(`DROP TEMPORARY TABLE IF EXISTS ${team}_schedule_reindexed;`);
 
-            // Step 2: Reset AUTO_INCREMENT for proper sequential IDs
-            await executeQuery(`ALTER TABLE schedule_reindexed AUTO_INCREMENT = 1;`);
-
-            // Step 3: Insert events with correct ordering into temporary table
+            // Step 2: Create a new temp table without the AUTO_INCREMENT 'id' column
             await executeQuery(`
-                INSERT INTO schedule_reindexed (guild_id, event_name, event_date, event_time, announcement_message_id, participants, created_by, status)
-                SELECT guild_id, event_name, event_date, event_time, announcement_message_id, 
-                IFNULL(participants, '') AS participants, created_by, status
-                FROM schedule WHERE guild_id = ? ORDER BY event_date, event_time;
+                CREATE TEMPORARY TABLE ${team}_schedule_reindexed (
+                    guild_id VARCHAR(32),
+                    event_name VARCHAR(255),
+                    event_date DATE,
+                    event_time TIME,
+                    announcement_message_id VARCHAR(64),
+                    participants TEXT,
+                    created_by VARCHAR(32),
+                    status VARCHAR(16)
+                );
+            `);
+
+            // Step 3: Insert all events ordered by date and time into the temp table
+            await executeQuery(`
+                INSERT INTO ${team}_schedule_reindexed (
+                    guild_id, event_name, event_date, event_time,
+                    announcement_message_id, participants, created_by, status
+                )
+                SELECT
+                    guild_id, event_name, event_date, event_time,
+                    announcement_message_id, IFNULL(participants, ''),
+                    created_by, status
+                FROM ${team}_schedule
+                WHERE guild_id = ?
+                ORDER BY event_date, event_time;
             `, [guildId]);
 
-            // Step 4: Replace old table with the reordered version
-            await executeQuery(`DELETE FROM schedule WHERE guild_id = ?;`, [guildId]);
+            // Step 4: Clear the original events for this guild
+            await executeQuery(`DELETE FROM ${team}_schedule WHERE guild_id = ?;`, [guildId]);
 
-            await executeQuery(`INSERT INTO schedule SELECT * FROM schedule_reindexed;`);
+            // Step 5: Reset AUTO_INCREMENT to start fresh
+            await executeQuery(`ALTER TABLE ${team}_schedule AUTO_INCREMENT = 1;`);
 
-            // Step 5: Cleanup temporary table
-            await executeQuery(`DROP TEMPORARY TABLE schedule_reindexed;`);
+            // Step 6: Reinsert from temp table—MySQL will assign new sequential IDs
+            await executeQuery(`
+                INSERT INTO ${team}_schedule (
+                    guild_id, event_name, event_date, event_time,
+                    announcement_message_id, participants, created_by, status
+                )
+                SELECT
+                    guild_id, event_name, event_date, event_time,
+                    announcement_message_id, participants, created_by, status
+                FROM ${team}_schedule_reindexed;
+            `);
 
+            // Step 7: Drop the temp table and commit the transaction
+            await executeQuery(`DROP TEMPORARY TABLE ${team}_schedule_reindexed;`);
             await executeQuery(`COMMIT;`);
         } catch (error) {
-            console.error(`Failed to reindex schedule events for guild ${guildId}:`, error);
+            console.error(`Failed to reindex ${team} schedule events for guild ${guildId}:`, error);
             await executeQuery(`ROLLBACK;`);
         }
     },
 
-    development: true
+    development: false
 }

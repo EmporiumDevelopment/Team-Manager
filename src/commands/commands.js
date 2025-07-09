@@ -44,5 +44,5 @@ export default {
         await interaction.reply({ embeds: [embed] });
     },
 
-    development: true
+    development: false
 };

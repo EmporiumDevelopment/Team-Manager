@@ -1,14 +1,14 @@
 import { executeQuery } from "../../database.js";
 import { EmbedBuilder } from "discord.js";
 
-async function cleanupCompletedEvents(client, guild) {
+async function cleanupCompletedEvents(client, guild, team) {
     
     const guildId = guild.id;
 
     const completedEvents = await executeQuery(`
         SELECT s.announcement_message_id, ss.announcements_channel_id 
-        FROM schedule s
-        JOIN schedule_settings ss ON s.guild_id = ss.guild_id
+        FROM ${team}_schedule s
+        JOIN ${team}_schedule_settings ss ON s.guild_id = ss.guild_id
         WHERE s.status = 'completed' AND s.guild_id = ?;
     `, [guildId]);
 
@@ -34,7 +34,7 @@ async function cleanupCompletedEvents(client, guild) {
         }
     }
 
-    await executeQuery(`DELETE FROM schedule WHERE status = 'completed' AND guild_id = ?;`, [guildId]);
+    await executeQuery(`DELETE FROM ${team}_schedule WHERE status = 'completed' AND guild_id = ?;`, [guildId]);
     console.log(`Deleted ${completedEvents.length} completed events for guild ${guildId}`);
 }
 

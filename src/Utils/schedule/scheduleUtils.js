@@ -2,22 +2,22 @@ import { EmbedBuilder } from "@discordjs/builders";
 import { executeQuery } from "../../database.js";
 import { DateTime } from "luxon";
 
-async function getTodaysEvents(guild) {
+async function getTodaysEvents(guild, team) {
 
     const guildId = guild.id;
 
     const events = await executeQuery(`
         SELECT event_name, event_date, event_time, created_by
-        FROM schedule WHERE guild_id = ? AND event_date = CURRENT_DATE AND announcement_message_id IS NULL;
+        FROM ${team}_schedule WHERE guild_id = ? AND event_date = CURRENT_DATE AND announcement_message_id IS NULL;
     `, [guildId]);
 
     return events || [];
 }
 
-async function announceTodaysEvents(guild, client) {
+async function announceTodaysEvents(guild, client, team) {
 
     // get todays scheduled events
-    const events = await getTodaysEvents(guild);
+    const events = await getTodaysEvents(guild, team);
 
     // no events scheduled for today
     if(events.length === 0) return;
@@ -26,7 +26,7 @@ async function announceTodaysEvents(guild, client) {
 
     // fetch schedule settings
     const scheduleSettings = await executeQuery(`
-        SELECT * FROM schedule_settings WHERE guild_id = ?
+        SELECT * FROM ${team}_schedule_settings WHERE guild_id = ?
         `, [guildId]);
 
     // no schedule settings for that guild id found
@@ -48,6 +48,13 @@ async function announceTodaysEvents(guild, client) {
     // fetch channel
     const channel = await client.channels.fetch(channelId);
 
+    // fetch mention role
+    const roleData = await executeQuery(`
+        SELECT role_id FROM ${team}_schedule_settings WHERE guild_id = ?;
+    `, [guild.id]);
+
+    const mentionRole = roleData.length ? `<@&${roleData[0]?.role_id}>` : "";
+
     for (const event of events) {
 
         const formattedTime = DateTime.fromFormat(event.event_time, "HH:mm:ss").toFormat("HH:mm");
@@ -55,11 +62,7 @@ async function announceTodaysEvents(guild, client) {
         const embed = new EmbedBuilder()
             .setTitle(`Today's Schedule`)
             .setColor(0x007FFF)
-            .setDescription(`
-                **Event:** ${event.event_name}
-                **Time:** ${formattedTime}\n
-                React if you are available for this event.
-            `)
+            .setDescription(`**Event:** ${event.event_name}\n**Time:** ${formattedTime}\n\nReact if you are available for this event.\n`)
             .addFields({ name: "Available Players", value: "No players", inline: false });
 
         const message = await channel.send({ embeds: [embed] });
@@ -67,7 +70,7 @@ async function announceTodaysEvents(guild, client) {
         // store message in database 
         // TODO: 
         await executeQuery(`
-            UPDATE schedule SET announcement_message_id = ? WHERE event_name = ?
+            UPDATE ${team}_schedule SET announcement_message_id = ? WHERE event_name = ?
             `, [message.id, event.event_name]);
 
         if (!confirm || !decline) {
@@ -77,8 +80,31 @@ async function announceTodaysEvents(guild, client) {
 
         await message.react(confirm);
         await message.react(decline);
+
+        // mention role
+        if(mentionRole) {
+            await channel.send(mentionRole);
+        }
     }
 
 }
 
-export { getTodaysEvents, announceTodaysEvents }
+async function resolveScheduleTeamByMessageId(guildId, messageId) {
+    
+    const teams = ["mixed", "female", "clan"];
+
+    for (const team of teams) {
+        const result = await executeQuery(`
+            SELECT event_name FROM ${team}_schedule
+            WHERE guild_id = ? AND announcement_message_id = ?
+        `, [guildId, messageId]);
+
+        if (result.length > 0) {
+            return { team, eventName: result[0].event_name };
+        }
+    }
+
+    return null; // Not a schedule announcement
+}
+
+export { getTodaysEvents, announceTodaysEvents, resolveScheduleTeamByMessageId }

@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, PermissionsBitField } from 'discord.js';
-import { sendLogEmbed } from '../utils/logger';
-import COLOUR_VALUES from '../utils/colourMap';
+import { sendLogEmbed } from '../utils/logger.js';
+import COLOUR_VALUES from '../utils/colourMap.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -31,7 +31,7 @@ export default {
             await interaction.channel.bulkDelete(amount, true);
             await interaction.reply({ 
                 content: `Deleted **${amount}** messages!`, 
-                ephemeral: true 
+                ephemeral: true
             });
 
             await sendLogEmbed(
@@ -39,11 +39,12 @@ export default {
                 `**Purge**\n\nPurge has been manually triggered\n\n**Channel:** <#${interaction.channel.id}>\n**Messages:** ${amount}\n**By:** <@${interaction.user.id}>`,
                 COLOUR_VALUES.WARNING
             );
+
         } catch (error) {
             console.error('Error purging messages:', error);
             await interaction.reply({ 
                 content: "Failed to purge messages. Make sure they are less than 14 days old.", 
-                ephemeral: true 
+                ephemeral: true
             });
         }
     },

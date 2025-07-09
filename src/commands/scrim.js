@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from "@discordjs/builders";
-import { PermissionsBitField, MessageFlags, EmbedBuilder } from "discord.js";
+import { PermissionsBitField, EmbedBuilder } from "discord.js";
 import { sendLogEmbed } from "../utils/logger.js";
 import { executeQuery } from "../database.js";
 import COLOUR_VALUES from "../utils/colourMap.js";
@@ -13,6 +13,17 @@ export default {
             subcommand
                 .setName("channel")
                 .setDescription("Set the channel for scrim availability")
+                .addStringOption(option =>
+                    option
+                    .setName("team-type")
+                    .setDescription("The team you want to setup scrim availability for. (mixed/female)")
+                    .setRequired(true)
+                    .addChoices(
+                        { name: "Mixed", value: "mixed" },
+                        { name: "Female", value: "female" },
+                        { name: "Clan", value: "clan" }
+                    )
+                )
                 .addChannelOption(option =>
                     option
                         .setName("channel")
@@ -25,12 +36,34 @@ export default {
             subcommand
                 .setName("sendavailability")
                 .setDescription("Send scrim availability embed to the channel")
+                .addStringOption(option =>
+                    option
+                    .setName("team-type")
+                    .setDescription("The team you want to setup scrim availability for. (mixed/female)")
+                    .setRequired(true)
+                    .addChoices(
+                        { name: "Mixed", value: "mixed" },
+                        { name: "Female", value: "female" },
+                        { name: "Clan", value: "clan" }
+                    )
+                )
         )
         // role
         .addSubcommand(subcommand =>
             subcommand
                 .setName("role")
                 .setDescription("Set the role to be pinged for scrim availability")
+                .addStringOption(option =>
+                    option
+                    .setName("team-type")
+                    .setDescription("The team you want to setup scrim availability for. (mixed/female)")
+                    .setRequired(true)
+                    .addChoices(
+                        { name: "Mixed", value: "mixed" },
+                        { name: "Female", value: "female" },
+                        { name: "Clan", value: "clan" }
+                    )
+                )
                 .addRoleOption(option =>
                     option
                         .setName("role")
@@ -43,6 +76,17 @@ export default {
             subcommand
                 .setName("title")
                 .setDescription("Set the title of the scrim availability embed")
+                .addStringOption(option =>
+                    option
+                    .setName("team-type")
+                    .setDescription("The team you want to setup scrim availability for. (mixed/female)")
+                    .setRequired(true)
+                    .addChoices(
+                        { name: "Mixed", value: "mixed" },
+                        { name: "Female", value: "female" },
+                        { name: "Clan", value: "clan" }
+                    )
+                )
                 .addStringOption(option =>
                     option
                         .setName("title")
@@ -76,6 +120,17 @@ export default {
             subcommand
                 .setName("fix")
                 .setDescription("Fix the scrim availability embed")
+                .addStringOption(option =>
+                    option
+                    .setName("team-type")
+                    .setDescription("The team you want to setup scrim availability for. (mixed/female)")
+                    .setRequired(true)
+                    .addChoices(
+                        { name: "Mixed", value: "mixed" },
+                        { name: "Female", value: "female" },
+                        { name: "Clan", value: "clan" }
+                    )
+                )
         ),
 
     async execute(interaction) {
@@ -85,13 +140,21 @@ export default {
 
         // Check if guildId is available
         if(!guildId) {
-            return interaction.reply({ content: "Error: Could not determine guild ID.", flags: MessageFlags.Ephemeral });
+            return interaction.reply({ content: "Error: Could not determine guild ID.", ephemeral: true });
         }
 
         // Check if roster settings exist
-        const scrimRows = await executeQuery(`
-            SELECT * FROM scrim_settings WHERE guild_id = ?
+        const mixedScrimRows = await executeQuery(`
+            SELECT * FROM mixed_scrim_settings WHERE guild_id = ?
         `, [guildId]);
+
+        const femaleScrimRows = await executeQuery(`
+            SELECT * FROM female_scrim_settings WHERE guild_id = ?
+            `, [guildId]);
+
+        const clanScrimRows = await executeQuery(`
+            SELECT * FROM clan_scrim_settings WHERE guild_id = ?
+            `, [guildId]);
 
         // Permission check
         if(["channel", "sendavailability", "role", "title", "emojis"].includes(subcommand)) {
@@ -100,12 +163,28 @@ export default {
             }
         }
 
-        if(scrimRows.length === 0) {
+        if(mixedScrimRows.length === 0) {
             // Initialize scrim settings if not present
             await executeQuery(`
-                INSERT INTO scrim_settings (guild_id) VALUES (?)
+                INSERT INTO mixed_scrim_settings (guild_id) VALUES (?)
             `, [guildId]);
-            console.log(`No scrim settings found for guild: ${guildId}. Initialized default settings.`);
+            console.log(`No mixed scrim settings found for guild: ${guildId}. Initialized default settings.`);
+        }
+
+        if(femaleScrimRows.length === 0) {
+            // Initialize scrim settings if not present
+            await executeQuery(`
+                INSERT INTO female_scrim_settings (guild_id) VALUES (?)
+            `, [guildId]);
+            console.log(`No female scrim settings found for guild: ${guildId}. Initialized default settings.`);
+        }
+
+        if(clanScrimRows.length === 0) {
+            // Initialize scrim settings if not present
+            await executeQuery(`
+                INSERT INTO clan_scrim_settings (guild_id) VALUES (?)
+            `, [guildId]);
+            console.log(`No clan scrim settings found for guild: ${guildId}. Initialized default settings.`);
         }
 
         if(subcommand === "channel") {
@@ -113,12 +192,8 @@ export default {
             return;
         }
 
-        if (!scrimRows[0]?.channel_id) {
-            return interaction.reply({ content: "The scrim channel has not been set up! Use `/scrim channel` first.", ephemeral: true });
-        }
-
         if (!guildId) {
-            return interaction.reply({ content: "Error: Could not determine guild ID.", flags: MessageFlags.Ephemeral });
+            return interaction.reply({ content: "Error: Could not determine guild ID.", ephemeral: true });
         }
 
         if(subcommand === "role") {
@@ -140,44 +215,49 @@ export default {
         const guildId = interaction.guild.id;
 
         const role = interaction.options.getRole("role");
+        const team = interaction.options.getString("team-type");
         
         try {
 
+            if(!team) {
+                return interaction.reply({ content: "You must specify the team you want to set the mentionable role for. (Mixed/Female)", ephemeral: true });
+            }
+
             // Check if role is valid
             if (!role) {
-                return interaction.reply({ content: "Please provide a valid role!", flags: MessageFlags.Ephemeral });
+                return interaction.reply({ content: "Please provide a valid role!", ephemeral: true });
             }
 
             // Check if scrim settings exist for the guild
             const scrimSettings = await executeQuery(`
-                SELECT * FROM scrim_settings WHERE guild_id = ?
+                SELECT * FROM ${team}_scrim_settings WHERE guild_id = ?
             `, [guildId]);
 
             if (scrimSettings.length === 0) {
                 // Initialize scrim settings if not present
                 await executeQuery(`
-                    INSERT INTO scrim_settings (guild_id) VALUES (?)
+                    INSERT INTO ${team}_scrim_settings (guild_id) VALUES (?)
                 `, [guildId]);
                 console.log(`No scrim settings found for guild: ${guildId}. Initialized default settings.`);
             }
 
             // Update or insert the role in scrim_settings
             await executeQuery(`
-                INSERT INTO scrim_settings (guild_id, role_id) VALUES (?, ?)
+                INSERT INTO ${team}_scrim_settings (guild_id, role_id) VALUES (?, ?)
                 ON DUPLICATE KEY UPDATE role_id = VALUES(role_id)
             `, [guildId, role.id]);
 
             // Send confirmation message
             await sendLogEmbed(
                 guildId, 
-                `**Scrim Settings Updated**\n\n The Scrim availability role has been updated\n**New Role:** ${role}**By:** <@${interaction.user.id}>`, 
+                `**Scrim Settings Updated**\n\n The Scrim availability role has been updated\n**New Role:** ${role}\n**By:** <@${interaction.user.id}>`, 
                 COLOUR_VALUES.EDIT
             );
 
             return interaction.reply({ content: `Scrim availability role set to ${role}.`, ephemeral: true });
         } catch (error) {
             console.error(`Failed to set Scrim Availability role for server: ${serverName} ID: ${guildId}:`, error);
-            return interaction.reply({ content: "An error occurred while setting the Scrim Availability role.", flag: MessageFlags.Ephemeral });
+            return interaction.reply({ content: "An error occurred while setting the Scrim Availability role.", ephemeral: true });
         }
     },
 
@@ -187,29 +267,34 @@ export default {
         const guildId = interaction.guild.id;
 
         const title = interaction.options.getString("title");
+        const team = interaction.options.getString("team-role");
 
         try {
 
+            if(!team) {
+                return interaction.reply({ content: "You must specify the team you want to change the title for. (Mixed/Female)", ephemeral: true });
+            }
+
             if(!title) {
-                return interaction.reply({ content: "Please provide a valid title for the scrim availability embed.", flags: MessageFlags.Ephemeral });
+                return interaction.reply({ content: "Please provide a valid title for the scrim availability embed.", ephemeral: true });
             }
 
             // Check if scrim settings exist for the guild
             const scrimSettings = await executeQuery(`
-                SELECT * FROM scrim_settings WHERE guild_id = ?
+                SELECT * FROM ${team}_scrim_settings WHERE guild_id = ?
             `, [guildId]);
 
             if (scrimSettings.length === 0) {
                 // Initialize scrim settings if not present
                 await executeQuery(`
-                    INSERT INTO scrim_settings (guild_id) VALUES (?)
+                    INSERT INTO ${team}_scrim_settings (guild_id) VALUES (?)
                 `, [guildId]);
                 console.log(`No scrim settings found for guild: ${guildId}. Initialized default settings.`);
             }
 
             // Update or insert the title in scrim_settings
             await executeQuery(`
-                INSERT INTO scrim_settings (guild_id, embed_title) VALUES (?, ?)
+                INSERT INTO ${team}_scrim_settings (guild_id, embed_title) VALUES (?, ?)
                 ON DUPLICATE KEY UPDATE embed_title = VALUES(embed_title)
             `, [guildId, title]);
 
@@ -223,7 +308,7 @@ export default {
             return interaction.reply({ content: `Scrim availability embed title set to "${title}".`, ephemeral: true });
         } catch (error) {
             console.error(`Failed to set scrim title for server: ${serverName} ID: ${guildId}:`, error);
-            return interaction.reply({ content: "An error occurred while setting the scrim title.", flag: MessageFlags.Ephemeral });
+            return interaction.reply({ content: "An error occurred while setting the scrim title.", ephemeral: true });
         }
     },
 
@@ -232,44 +317,49 @@ export default {
         const serverName = interaction.guild.name;
         const guildId = interaction.guild.id;
 
+        const team = interaction.options.getString("team-type");
         const channel = interaction.options.getChannel("channel");
 
         try {
             await interaction.deferReply({ ephemeral: true });
 
+            if(!team) {
+                return interaction.editReply({ content: "You must specify which team you want to set scrims up for. (Mixed/Female)", ephemeral: true });
+            }
+
             if(!channel) {
-                return interaction.editReply({ content: "Error: Could not find the specified channel.", flags: MessageFlags.Ephemeral });
+                return interaction.editReply({ content: "You must specify the channel you want to set.", ephemeral: true });
             }
 
             const scrimSettings = await executeQuery(`
-                SELECT * FROM scrim_settings WHERE guild_id = ?
+                SELECT * FROM ${team}_scrim_settings WHERE guild_id = ?
             `, [guildId]);
 
             if (scrimSettings.length === 0) {
                 // Initialize scrim settings if not present
                 await executeQuery(`
-                    INSERT INTO scrim_settings (guild_id) VALUES (?)
+                    INSERT INTO ${team}_scrim_settings (guild_id) VALUES (?)
                 `, [guildId]);
                 console.log(`No scrim settings found for guild: ${guildId}. Initialized default settings.`);
             }
 
             // Insert or update the channel in scrim_settings
             await executeQuery(`
-                INSERT INTO scrim_settings (guild_id, channel_id) VALUES (?, ?)
+                INSERT INTO ${team}_scrim_settings (guild_id, channel_id) VALUES (?, ?)
                 ON DUPLICATE KEY UPDATE channel_id = VALUES(channel_id)
             `, [guildId, channel.id]);
 
             // Send confirmation message
             await sendLogEmbed(
                 guildId, 
-                `**Scrim Settings Updated**\n\n The Scrim availability channel has been updated\n**New Channel:** ${channel}**By:** <@${interaction.user.id}>`, 
+                `**Scrim Settings Updated**\n\n The Scrim availability channel has been updated for ${team}\n**New Channel:** ${channel}\n**By:** <@${interaction.user.id}>`, 
                 COLOUR_VALUES.EDIT
             );
 
             return interaction.editReply({ content: `Scrim availability channel set to ${channel}.`, ephemeral: true });
         } catch (error) {
             console.error(`Failed to set Scrim Availability channel for server: ${serverName} ID: ${guildId}:`, error);
-            return interaction.editReply({ content: "An error occurred while setting up the scrim channel.", flag: MessageFlags.Ephemeral });
+            return interaction.editReply({ content: "An error occurred while setting up the scrim channel.", ephemeral: true });
         }
     },
 
@@ -286,15 +376,15 @@ export default {
 
             // Validate user input
             if(!emoji16) {  
-                return interaction.reply({ content: "You must provide an emoji for 16.", flags: MessageFlags.Ephemeral });
+                return interaction.reply({ content: "You must provide an emoji for 16.", ephemeral: true });
             }
 
             if(!emoji20) {
-                return interaction.reply({ content: "You must provide an emoji for 20.", flags: MessageFlags.Ephemeral });
+                return interaction.reply({ content: "You must provide an emoji for 20.", ephemeral: true });
             }
 
             if(!emoji23) {
-                return interaction.reply({ content: "You must provide an emoji for 23.", flags: MessageFlags.Ephemeral });
+                return interaction.reply({ content: "You must provide an emoji for 23.", ephemeral: true });
             }
             
             const emojiRegex = /^<:\w+:\d+>$/;
@@ -312,7 +402,7 @@ export default {
                 await executeQuery(`
                     INSERT INTO scrim_emojis (guild_id) VALUES (?)
                 `, [guildId]);
-                console.log(`🔍 No scrim emojis found for guild: ${guildId}. Initialized default settings.`);
+                console.log(`No scrim emojis found for guild: ${guildId}. Initialized default settings.`);
             }
             
             // Insert or update the emojis in scrim_emojis
@@ -323,7 +413,7 @@ export default {
             `, [guildId, emoji16, emoji20, emoji23]);
     
             // Send confirmation message
-            await interaction.reply({ content: "Scrim emojis updated successfully!", flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: "Scrim emojis updated successfully!", ephemeral: true });
 
             await sendLogEmbed(
                 guildId, 
@@ -333,19 +423,26 @@ export default {
 
         } catch (error) {
             console.error(`Failed to save scrim emojis for server: ${serverName} ID: ${guildId}:`, error);
-            await interaction.reply({ content: "There was an error setting scrim emojis.", flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: "There was an error setting scrim emojis.", ephemeral: true });
         }
     },
 
     async fixScrimEmbed(interaction) {
+
         await interaction.deferReply({ ephemeral: true });
 
         const guildId = interaction.guild.id;
+        const team = interaction.options.getString("team-type");
 
         try {
+
+            if(!team) {
+                return interaction.reply({ content: "You must specify the team you want to fix scrim availablity for. (Mixed/Female)", ephemeral: true });
+            }
+
             // Fetch scrim settings
             const scrimSettings = await executeQuery(`
-                SELECT channel_id, embed_title FROM scrim_settings WHERE guild_id = ?
+                SELECT channel_id, embed_title FROM ${team}_scrim_settings WHERE guild_id = ?
             `, [guildId]);
 
             if (!scrimSettings || !scrimSettings[0]?.channel_id) {
@@ -354,14 +451,15 @@ export default {
 
             // Fetch scrim message ID
             const channels = await executeQuery(`
-                SELECT scrim_message_id FROM channels WHERE guild_id = ?
+                SELECT message_id FROM ${team}_scrim_settings WHERE guild_id = ?
             `, [guildId]);
 
-            if (!channels || !channels[0]?.scrim_message_id) {
+            if (!channels || !channels[0]?.message_id) {
                 return interaction.editReply({ content: "No scrim message found. Use `/scrim sendavailability` first." });
             }
 
-            const scrimMessageId = channels[0]?.scrim_message_id;
+            const scrimMessageId = channels[0]?.message_id;
+
             let scrimChannel;
             try {
                 scrimChannel = await interaction.guild.channels.fetch(scrimSettings[0]?.channel_id);
@@ -410,14 +508,17 @@ export default {
             );
 
             // Retrieve users for each reaction
-            const reaction16 = message.reactions.cache.find(r => r.emoji.name === "16" || r.emoji.id === emoji_16);
+            const reaction16 = message.reactions.cache.find(r => r.emoji.name === "_16" || r.emoji.id === emoji_16);
             const users16 = reaction16 ? await reaction16.users.fetch().then(users => [...users.values()].filter(user => !user.bot)) : [];
+            //console.log(`16 users: ${users16}`);
 
-            const reaction20 = message.reactions.cache.find(r => r.emoji.name === "20" || r.emoji.id === emoji_20);
+            const reaction20 = message.reactions.cache.find(r => r.emoji.name === "_20" || r.emoji.id === emoji_20);
             const users20 = reaction20 ? await reaction20.users.fetch().then(users => [...users.values()].filter(user => !user.bot)) : [];
+            //console.log(`20 users: ${users20}`);
 
-            const reaction23 = message.reactions.cache.find(r => r.emoji.name === "23" || r.emoji.id === emoji_23);
+            const reaction23 = message.reactions.cache.find(r => r.emoji.name === "_23" || r.emoji.id === emoji_23);
             const users23 = reaction23 ? await reaction23.users.fetch().then(users => [...users.values()].filter(user => !user.bot)) : [];
+            //console.log(`23 users: ${users23}`);
 
             // Format user lists
             const users16List = users16.length > 0 ? users16.map(user => user.displayName).join("\n") : "No players";
@@ -451,10 +552,16 @@ export default {
         const guildId =  interaction.guild.id;
         const client = interaction.client;
 
+        const team = interaction.options.getString("team-type");
+
+        if(!team) {
+            return interaction.reply({ content: "You must specify which scrim availability you want to send.", ephemeral: true });
+        }
+
         await interaction.deferReply({ ephemeral: true });
 
         const scrimSettings = await executeQuery(`
-            SELECT channel_id FROM scrim_settings WHERE guild_id = ?
+            SELECT channel_id FROM ${team}_scrim_settings WHERE guild_id = ?
         `, [guildId]);
 
         if (scrimSettings.length === 0 || !scrimSettings[0]?.channel_id) {
@@ -480,13 +587,13 @@ export default {
         const { emoji_16, emoji_20, emoji_23 } = emojiRows[0];
 
         const titleRows = await executeQuery(`
-            SELECT embed_title FROM scrim_settings WHERE guild_id = ?`
+            SELECT embed_title FROM ${team}_scrim_settings WHERE guild_id = ?`
             , [guildId]);
 
         const embedTitle = (titleRows.length > 0 && titleRows[0]?.embed_title) ? titleRows[0].embed_title : "Scrim Availability";
 
         const roleRows = await executeQuery(`
-            SELECT role_id FROM scrim_settings WHERE guild_id = ?
+            SELECT role_id FROM ${team}_scrim_settings WHERE guild_id = ?
             `, [guildId]);
 
         const roleId = (roleRows.length > 0 && roleRows[0].role_id) ? roleRows[0].role_id : null;
@@ -507,8 +614,8 @@ export default {
             const embedMessage = await scrimChannel.send({ embeds: [embed] });
 
             await executeQuery(`
-                INSERT INTO channels (guild_id, scrim_message_id) VALUES (?, ?)
-                ON DUPLICATE KEY UPDATE scrim_message_id = VALUES(scrim_message_id);
+                INSERT INTO ${team}_scrim_settings (guild_id, message_id) VALUES (?, ?)
+                ON DUPLICATE KEY UPDATE message_id = VALUES(message_id);
             `, [guildId, embedMessage.id]);
 
             await embedMessage.react(emoji_16);
@@ -525,7 +632,7 @@ export default {
             // send discord log
             await sendLogEmbed(
                 guildId, 
-                `**Scrim Availability**\n\nThe scrim availability has been sent manually\n\n**Channel:** ${scrimChannel}\n**By:** <@${interaction.user.id}>`, 
+                `**Scrim Availability**\n\nThe scrim availability has been sent manually for ${team}\n\n**Channel:** ${scrimChannel}\n**By:** <@${interaction.user.id}>`, 
                 COLOUR_VALUES.ADD
             );
 

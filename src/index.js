@@ -9,6 +9,7 @@ import { sendLogEmbed } from './utils/logger.js';
 import { executeQuery } from './database.js';
 import "./utils/schedule/scheduleTasks.js"
 import { handleScheduleReactionAdd, handleScheduleReactionRemove } from './handlers/schedule/scheduleAnnouncementReactions.js';
+import { resolveScheduleTeamByMessageId } from './utils/schedule/scheduleUtils.js';
 
 dotenv.config({ path: './src/.env' });
 
@@ -36,55 +37,72 @@ client.once(Events.ClientReady, async () => {
     const guilds = client.guilds.cache.map(guild => guild.id);
 
     for (const guildId of guilds) {
+        
         if (!guildId) {
             console.error("Error: guildId is undefined.");
             continue;
         }
 
-        // 🔹 Fetch scrim messages
-        const scrimRows = await executeQuery(`
-            SELECT scrim_message_id FROM channels WHERE guild_id = ?
+        const mixedScrimSettings = await executeQuery(`
+            SELECT channel_id, message_id FROM mixed_scrim_settings WHERE guild_id = ?
         `, [guildId]);
 
-        const scrimSettings = await executeQuery(`
-            SELECT channel_id FROM scrim_settings WHERE guild_id = ?
-        `, [guildId]);
+        // cache mixed scrim message if it has been sent
+        if(mixedScrimSettings[0]?.channel_id) {
 
-        if (!scrimSettings.length || !scrimSettings[0]?.channel_id) {
-            console.error(`Skipping guild: Missing scrim channel ID for guild ${guildId}`);
-            continue;
+            try {
+                const mixedScrimChannel = await client.channels.fetch(mixedScrimSettings[0]?.channel_id);
+                
+                // mixed scrim channel is setup
+                if(mixedScrimChannel) {
+
+                    // scrim message is stored
+                    if (mixedScrimSettings[0]?.message_id) {
+                        // cache scrim message so bot can access it
+                        await mixedScrimChannel.messages.fetch(mixedScrimSettings[0]?.message_id).catch(() => null);
+                    }
+                }
+            } catch (error) {
+                console.log(`Failed to fetch mixed scrim message for guild ${guildId}:`, error);
+            }
         }
 
-        try {
-            const channel = await client.channels.fetch(scrimSettings[0]?.channel_id);
-            if (!channel) {
-                console.error(`Skipping guild: Channel not found for guild ${guildId}`);
-                continue;
-            }
+        const femaleScrimSettings = await executeQuery(`
+            SELECT channel_id, message_id FROM female_scrim_settings WHERE guild_id = ?
+            `, [guildId]);
 
-            if (!scrimRows.length || !scrimRows[0]?.scrim_message_id) {
-                console.log(`Skipping guild ${guildId}: No scrim message stored.`);
-                continue;
-            }
+        // cache female scrim message if it has been sent
+        if(femaleScrimSettings[0]?.channel_id) {
 
-            const scrimMessage = await channel.messages.fetch(scrimRows[0]?.scrim_message_id).catch(() => null);
-            if (!scrimMessage) {
-                console.log(`Skipping guild ${guildId}: Scrim message no longer exists.`);
-            }
+            try {
+                const femaleScrimChannel = await client.channels.fetch(femaleScrimSettings[0]?.channel_id);
 
-        } catch (error) {
-            console.log(`Failed to fetch scrim message for guild ${guildId}:`, error);
+                // female scrim channel is setup
+                if(femaleScrimChannel) {
+
+                    // scrim message is stored
+                    if (femaleScrimSettings[0]?.message_id) {
+                        // cache scrim message so bot can access it
+                        await femaleScrimChannel.messages.fetch(femaleScrimSettings[0]?.message_id).catch(() => null);
+                    }
+                }
+
+            } catch (error) {
+                console.log(`Failed to fetch female scrim message for guild ${guildId}:`, error);
+            }
         }
 
         // 🔹 Fetch schedule messages
-        const scheduleRows = await executeQuery(`
+
+        // mixed schedule
+        const mixedScheduleSettings = await executeQuery(`
             SELECT announcement_message_id, announcements_channel_id 
-            FROM schedule s 
-            JOIN schedule_settings ss ON s.guild_id = ss.guild_id 
+            FROM mixed_schedule s 
+            JOIN mixed_schedule_settings ss ON s.guild_id = ss.guild_id 
             WHERE s.announcement_message_id IS NOT NULL;
         `);
 
-        for (const row of scheduleRows) {
+        for (const row of mixedScheduleSettings) {
             try {
                 const scheduleChannel = await client.channels.fetch(row.announcements_channel_id);
                 if (!scheduleChannel) {
@@ -97,11 +115,60 @@ client.once(Events.ClientReady, async () => {
                     console.log(`Skipping schedule message ${row.announcement_message_id}: Message no longer exists.`);
                     continue;
                 }
-
-                console.log(`✅ Cached schedule message ${scheduleMessage.id} in ${scheduleChannel.id}`);
-
             } catch (error) {
-                console.log(`❌ Failed to fetch schedule message ${row.announcement_message_id}:`, error);
+                console.log(`Failed to fetch schedule message ${row.announcement_message_id}:`, error);
+            }
+        }
+
+        // female schedule
+        const femaleScheduleSettings = await executeQuery(`
+            SELECT announcement_message_id, announcements_channel_id 
+            FROM female_schedule s 
+            JOIN female_schedule_settings ss ON s.guild_id = ss.guild_id 
+            WHERE s.announcement_message_id IS NOT NULL;
+        `);
+
+        for (const row of femaleScheduleSettings) {
+            try {
+                const scheduleChannel = await client.channels.fetch(row.announcements_channel_id);
+                if (!scheduleChannel) {
+                    console.error(`Skipping guild: Schedule channel not found for ${row.announcements_channel_id}`);
+                    continue;
+                }
+
+                const scheduleMessage = await scheduleChannel.messages.fetch(row.announcement_message_id).catch(() => null);
+                if (!scheduleMessage) {
+                    console.log(`Skipping schedule message ${row.announcement_message_id}: Message no longer exists.`);
+                    continue;
+                }
+            } catch (error) {
+                console.log(`Failed to fetch schedule message ${row.announcement_message_id}:`, error);
+            }
+        }
+
+        // clan schedule
+        const clanScheduleSettings = await executeQuery(`
+            SELECT announcement_message_id, announcements_channel_id 
+            FROM clan_schedule s 
+            JOIN clan_schedule_settings ss ON s.guild_id = ss.guild_id 
+            WHERE s.announcement_message_id IS NOT NULL;
+        `);
+
+        for (const row of clanScheduleSettings) {
+            try {
+                const scheduleChannel = await client.channels.fetch(row.announcements_channel_id);
+                if (!scheduleChannel) {
+                    console.error(`Skipping guild: Schedule channel not found for ${row.announcements_channel_id}`);
+                    continue;
+                }
+
+                const scheduleMessage = await scheduleChannel.messages.fetch(row.announcement_message_id).catch(() => null);
+                if (!scheduleMessage) {
+                    console.log(`Skipping schedule message ${row.announcement_message_id}: Message no longer exists.`);
+                    continue;
+                }
+            } catch (error) {
+                console.log(`Failed to fetch schedule message ${row.announcement_message_id}:`, error);
             }
         }
     }
@@ -145,28 +212,21 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
         }
     }
 
+    // schedule availability handling
+    const teamContext = await resolveScheduleTeamByMessageId(reaction.message.guild.id, reaction.message.id);
 
-    // check if reaction message is a schedule announcement
-    const scheduleData = await executeQuery(`
-        SELECT event_name FROM schedule WHERE announcement_message_id = ?;
-    `, [reaction.message.id]);
-
-    console.log(`🔍 Schedule data check result:`, scheduleData);
-
-    if (scheduleData.length > 0) {
-
-        console.log(`Schedule announcement detected for ${scheduleData[0].event_name}`);
-        return await handleScheduleReactionAdd(reaction, user);
+    if(teamContext) {
+        // If the reaction is on a schedule announcement message, handle it
+        return await handleScheduleReactionAdd(reaction, user, teamContext.team);
     }
 
-    console.log(`🔍 Reaction did not match any schedule message, passing to scrim handler.`);
-
-    // scrim availability
+    // scrim availability handling
     await handleReactionAdd(reaction, user);
 });
 
 client.on(Events.MessageReactionRemove, async (reaction, user) => {
-    if (!reaction.message.guild || user.bot) return; // Ignore bot reactions & ensure it's in a guild
+
+    if (!reaction.message.guild || user.bot) return;
 
     // Fetch message if needed
     if (reaction.message.partial) {
@@ -178,13 +238,11 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
         }
     }
 
-    // Check if the reaction belongs to a schedule announcement
-    const scheduleData = await executeQuery(`
-        SELECT event_name FROM schedule WHERE announcement_message_id = ?;
-    `, [reaction.message.id]);
+    // Schedule availability handling
+    const teamContext = await resolveScheduleTeamByMessageId(reaction.message.guild.id, reaction.message.id);
 
-    if (scheduleData.length > 0) {
-        return await handleScheduleReactionRemove(reaction, user);
+    if(teamContext) {
+        return await handleScheduleReactionRemove(reaction, user, teamContext.team);
     }
 
     // Scrim availability handling

@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, PermissionsBitField, MessageFlags } from "discord.js";
+import { SlashCommandBuilder, PermissionsBitField } from "discord.js";
 import { executeQuery } from "../database.js";
 import { sendLogEmbed } from "../utils/logger.js";
 import COLOUR_VALUES from "../utils/colourMap.js";
@@ -74,7 +74,7 @@ export default {
         const channel = interaction.options.getChannel("channel");
 
         if (!channel) {
-            return interaction.reply({ content: "Please provide a valid channel!", flags: MessageFlags.Ephemeral });
+            return interaction.reply({ content: "Please provide a valid channel!", ephemeral: true });
         }
 
         try {
@@ -92,13 +92,13 @@ export default {
                 COLOUR_VALUES.EDIT
             );
             if(interaction.deferred || interaction.replied) {
-                return interaction.followUp({ content: `Logs channel successfully set to <#${channel.id}>`, flag: MessageFlags.Ephemeral });
+                return interaction.followUp({ content: `Logs channel successfully set to <#${channel.id}>`, ephemeral: true });
             } else {
-                return interaction.reply({ content: `Logs channel successfully set to <#${channel.id}>`, flag: MessageFlags.Ephemeral });
+                return interaction.reply({ content: `Logs channel successfully set to <#${channel.id}>`, ephemeral: true });
             }
         } catch (error) {
             console.error(`Failed to set roster channel for Server: ${serverName} ID: ${guildId}:`, error);
-            return interaction.reply({ content: "An error occurred while setting up the roster channel.", flag: MessageFlags.Ephemeral });
+            return interaction.reply({ content: "An error occurred while setting up the roster channel.", ephemeral: true });
         }
     },
 
@@ -123,7 +123,7 @@ export default {
             return interaction.reply({ content: `Logs title set to "${title}".`, ephemeral: true });
         } catch (error) {
             console.error(`Failed to set logs title for server: ${serverName} ID: ${guildId}:`, error);
-            return interaction.reply({ content: "An error occurred while setting the logs title.", flag: MessageFlags.Ephemeral });
+            return interaction.reply({ content: "An error occurred while setting the logs title.", ephemeral: true });
         }
     },
     development: false

@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs';
-import { sendScrimEmbed } from "../utils/scrimScheduler.js";
+import { sendScrimEmbedMixed } from "../utils/scrimScheduler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,7 +27,7 @@ class CommandHandler {
         }
 
         // 🔥 Manually register the scrim-related commands
-        this.commands.set("sendscrimembed", { execute: sendScrimEmbed });
+        this.commands.set("sendscrimembed", { execute: sendScrimEmbedMixed });
     }
 
     async handleInteraction(interaction) {

@@ -6,7 +6,9 @@ import { cleanupCompletedEvents } from "./scheduleCleanup.js";
 
 const TIMEZONE = "Europe/London";
 
-cron.schedule("33 16 * * *", async () => {
+const teams = ["mixed", "female", "clan"];
+
+cron.schedule("00 07 * * *", async () => {
 
     console.log("Running scheduled event announcements...");
 
@@ -19,20 +21,23 @@ cron.schedule("33 16 * * *", async () => {
 
     for (const guild of guilds) {
 
-        const scheduleSettings = await executeQuery(`
-            SELECT announcements_channel_id FROM schedule_settings WHERE guild_id = ?;
-        `, [guild.id]);
+        for(const team of teams) {
 
-        const channelId = scheduleSettings[0]?.announcements_channel_id;
-        if (!channelId) {
-            console.log(`Skipping guild ${guild.id}: No announcement channel set.`);
-            continue;
-        }
+            const scheduleSettings = await executeQuery(`
+                SELECT announcements_channel_id FROM ${team}_schedule_settings WHERE guild_id = ?;
+            `, [guild.id]);
 
-        try {
-            await announceTodaysEvents(guild, client);
-        } catch (error) {
-            console.error(`Error sending announcements for guild ${guild.id}:`, error);
+            const channelId = scheduleSettings[0]?.announcements_channel_id;
+            if (!channelId) {
+                console.log(`Skipping guild ${guild.id}: No announcement channel set.`);
+                continue;
+            }
+
+            try {
+                await announceTodaysEvents(guild, client, team);
+            } catch (error) {
+                console.error(`Error sending announcements for guild ${guild.id}:`, error);
+            }
         }
 
     }
@@ -52,10 +57,12 @@ cron.schedule("0 0 * * *", async () => {
     }
 
     for (const guild of guilds) {
-        try {
-            await cleanupCompletedEvents(client, guild);
+        for(const team of teams) {
+            try {
+            await cleanupCompletedEvents(client, guild, team);
         } catch(error) {
             console.error(`Error cleaning complete events for guild ${guild.id}:`, error);
+        }
         }
     }
 });

@@ -107,7 +107,7 @@ export default {
                 await executeQuery(`
                     INSERT INTO tournament_settings (guild_id) VALUES (?)
                 `, [guildId]);
-                console.log(`🔍 No tournament settings found for guild: ${guildId}. Initialized default settings.`);
+                console.log(`No tournament settings found for guild: ${guildId}. Initialized default settings.`);
             }
 
             // Check if role is set for type
@@ -121,7 +121,7 @@ export default {
             const embed = new EmbedBuilder()
                 .setColor("#0099ff")
                 .setTitle(title)
-                .setDescription(`React with ✅ if you can play and ❌ if you can't play.`)
+                .setDescription(`React with if you can play and if you can't play.`)
                 .addFields(
                     { name: "\nAvailable", value: "No players", inline: true },
                     { name: "\nNot Available", value: "No players", inline: true }

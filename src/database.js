@@ -46,7 +46,6 @@ async function initializeDatabase() {
             CREATE TABLE IF NOT EXISTS channels (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 guild_id VARCHAR(255) DEFAULT '',
-                scrim_message_id VARCHAR(255) DEFAULT NULL,
                 roster_channel_id VARCHAR(255) DEFAULT NULL,
                 roster_message_id VARCHAR(255) DEFAULT NULL,
                 type ENUM('scrim', 'log', 'roster') NOT NULL,
@@ -62,7 +61,7 @@ async function initializeDatabase() {
             CREATE TABLE IF NOT EXISTS roster (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 guild_id VARCHAR(255) NOT NULL,
-                discord_id VARCHAR(30) NOT NULL,
+                discord_id VARCHAR(30) DEFAULT NULL,
                 player_name VARCHAR(255) NOT NULL,
                 member_level ENUM('owner', 'leader', 'elite', 'member') DEFAULT 'member',
                 flag_emoji VARCHAR(50) DEFAULT '',
@@ -97,12 +96,33 @@ async function initializeDatabase() {
 
         // Create `scrim_settings` table
         await db.execute(`
-            CREATE TABLE IF NOT EXISTS scrim_settings (
+            CREATE TABLE IF NOT EXISTS mixed_scrim_settings (
                 guild_id VARCHAR(255) PRIMARY KEY,
                 role_id VARCHAR(255) DEFAULT NULL,
                 embed_title VARCHAR(255) DEFAULT 'Scrim Availability',
-                channel_id VARCHAR(255) DEFAULT NULL
+                channel_id VARCHAR(255) DEFAULT NULL,
+                message_id VARCHAR(255) DEFAULT NULL
             );
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS female_scrim_settings (
+                guild_id VARCHAR(255) PRIMARY KEY,
+                role_id VARCHAR(255) DEFAULT NULL,
+                embed_title VARCHAR(255) DEFAULT 'Scrim Availability',
+                channel_id VARCHAR(255) DEFAULT NULL,
+                message_id VARCHAR(255) DEFAULT NULL
+            )    
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS clan_scrim_settings (
+                guild_id VARCHAR(255) PRIMARY KEY,
+                role_id VARCHAR(255) DEFAULT NULL,
+                embed_title VARCHAR(255) DEFAULT 'Scrim Availability',
+                channel_id VARCHAR(255) DEFAULT NULL,
+                message_id VARCHAR(255) DEFAULT NULL
+            )    
         `);
 
         // Create `log_settings` table
@@ -148,8 +168,9 @@ async function initializeDatabase() {
             );
         `);
 
+        // Create schedule tables
         await db.execute(`
-            CREATE TABLE IF NOT EXISTS schedule_settings (
+            CREATE TABLE IF NOT EXISTS mixed_schedule_settings (
                 guild_id VARCHAR(255) PRIMARY KEY,
                 schedule_channel_id VARCHAR(255) DEFAULT NULL,
                 schedule_message_id VARCHAR(255) DEFAULT NULL,
@@ -162,7 +183,7 @@ async function initializeDatabase() {
         `);
 
         await db.execute(`
-            CREATE TABLE IF NOT EXISTS schedule (
+            CREATE TABLE IF NOT EXISTS female_schedule (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 guild_id VARCHAR(255) NOT NULL,
                 event_name VARCHAR(255) NULL,
@@ -173,6 +194,80 @@ async function initializeDatabase() {
                 created_by VARCHAR(30) NULL,
                 status ENUM('active', 'completed', 'cancelled') DEFAULT 'active'
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS female_schedule_settings (
+                guild_id VARCHAR(255) PRIMARY KEY,
+                schedule_channel_id VARCHAR(255) DEFAULT NULL,
+                schedule_message_id VARCHAR(255) DEFAULT NULL,
+                announcements_channel_id VARCHAR(255) DEFAULT NULL,
+                role_id VARCHAR(255) DEFAULT NULL,
+                embed_title VARCHAR(255) DEFAULT 'Team Schedule',
+                confirmation_emoji VARCHAR(50) DEFAULT '✅',
+                decline_emoji VARCHAR(50) DEFAULT '❌'
+            );
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS clan_schedule_settings (
+                guild_id VARCHAR(255) PRIMARY KEY,
+                schedule_channel_id VARCHAR(255) DEFAULT NULL,
+                schedule_message_id VARCHAR(255) DEFAULT NULL,
+                announcements_channel_id VARCHAR(255) DEFAULT NULL,
+                role_id VARCHAR(255) DEFAULT NULL,
+                embed_title VARCHAR(255) DEFAULT 'Team Schedule',
+                confirmation_emoji VARCHAR(50) DEFAULT '✅',
+                decline_emoji VARCHAR(50) DEFAULT '❌'
+            );
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS clan_schedule (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                guild_id VARCHAR(255) NOT NULL,
+                event_name VARCHAR(255) NULL,
+                event_date DATE NULL,
+                event_time TIME NULL,
+                announcement_message_id VARCHAR(255) NULL,
+                participants TEXT DEFAULT NULL,
+                created_by VARCHAR(30) NULL,
+                status ENUM('active', 'completed', 'cancelled') DEFAULT 'active'
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS mixed_schedule (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                guild_id VARCHAR(255) NOT NULL,
+                event_name VARCHAR(255) NULL,
+                event_date DATE NULL,
+                event_time TIME NULL,
+                announcement_message_id VARCHAR(255) NULL,
+                participants TEXT DEFAULT NULL,
+                created_by VARCHAR(30) NULL,
+                status ENUM('active', 'completed', 'cancelled') DEFAULT 'active'
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS player_activity (
+                guild_id VARCHAR(255) PRIMARY KEY,
+                user_id VARCHAR(30) DEFAULT NULL,
+                games_played INT DEFAULT 0,
+                wins INT DEFAULT 0,
+                total_points INT DEFAULT 0,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS player_activity_settings (
+                guild_id VARCHAR(255) PRIMARY KEY,
+                channel_id VARCHAR(255) DEFAULT NULL,
+                message_id VARCHAR(255) DEFAULT NULL,
+                title VARCHAR(255) DEFAULT 'Player Activity'
+            );
         `);
 
     } catch (error) {
