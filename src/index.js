@@ -4,6 +4,7 @@ import { REST } from '@discordjs/rest';
 import { Routes } from 'discord-api-types/v9';
 import { handleReactionAdd, handleReactionRemove } from "./handlers/scrimReactions.js";
 import CommandHandler from './handlers/commandHandler.js';
+import { handleMemberLeave } from './handlers/playerHandler.js';
 import { scheduleScrims } from './utils/scrimScheduler.js';
 import { sendLogEmbed } from './utils/logger.js';
 import { executeQuery } from './database.js';
@@ -19,10 +20,11 @@ const testServerId = process.env.TEST_SERVER_ID;
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildMessageReactions,
         GatewayIntentBits.MessageContent
-        ]
+    ]
 });
 
 client.announcementTypeCache = new Map();
@@ -278,6 +280,12 @@ client.on(Events.InteractionCreate, async interaction => {
     if (interaction.isChatInputCommand()) {
         return commandHandler.handleInteraction(interaction);
     }
+});
+
+client.on(Events.GuildMemberRemove, async (member) => {
+    console.log(`Member left: ${member.user.tag} (${member.id}) from guild: ${member.guild.id}`);
+
+    return handleMemberLeave(member);
 });
 
 async function setup() {
