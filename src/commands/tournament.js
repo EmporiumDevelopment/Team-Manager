@@ -1,53 +1,16 @@
-import { EmbedBuilder, SlashCommandBuilder } from "discord.js";
-import { executeQuery } from "../database.js";
+import { AttachmentBuilder, EmbedBuilder, SlashCommandBuilder } from "discord.js";
+import path from 'path';
+import { fileURLToPath } from "url";
 
 export default {
     data: new SlashCommandBuilder()
         .setName("tournament")
-        .setDescription("Manage tournament settings.")
+        .setDescription("Manage tournament information and settings.")
         // Set roles for each team
         .addSubcommand(subcommand =>
             subcommand
-                .setName("role")
-                .setDescription("Set role for each team.")
-                .addStringOption(option =>
-                    option
-                        .setName("type")
-                        .setDescription("Which team you are setting the mention role for.")
-                        .addChoices(
-                            { name: "Female", value: "female" },
-                            { name: "Mixed", value: "mixed" }
-                        )
-                        .setRequired(true)
-                )
-                .addRoleOption(option =>
-                    option
-                        .setName("role")
-                        .setDescription("Role to set for the team.")
-                        .setRequired(true)
-                )
-        )
-        // Send availability message
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName("sendavailability")
-                .setDescription("Send availability message.")
-                .addStringOption(option =>
-                    option
-                        .setName("type")
-                        .setDescription("Which team you are setting the mention role for.")
-                        .addChoices(
-                            { name: "Female", value: "female" },
-                            { name: "Mixed", value: "mixed" }
-                        )
-                        .setRequired(true)
-                        )
-                        .addStringOption(option =>
-                            option
-                                .setName("title")
-                                .setDescription("Set the title for the message.")
-                                .setRequired(true)
-                        )
+                .setName("information")
+                .setDescription("Send the information Embed.")
         ),
 
         async execute(interaction) {
@@ -65,136 +28,41 @@ export default {
             const subcommand = interaction.options.getSubcommand();
 
             // handle subcommands
-            if(subcommand === "sendavailability") {
-                await this.sendAvailability(interaction);
-            } else if(subcommand === "role") {
-                await this.setRole(interaction);
+            if(subcommand === "information") {
+                await this.sendInformation(interaction);
             }
         },
 
-        async sendAvailability(interaction) {
+        async sendInformation(interaction) {
 
-            const serverName = interaction.guild.name;
-            const guildId = interaction.guild?.id;
+            const description = "## SCHEDULE\n\n### ROSTER APPLICATION\n> Opens: 25.08, 12:00CEST\n> Closes: 31.08, 18:00CEST\n\n### GROUPSTAGE 20CEST\n> 1.09 – 7.09\n> 16+2 Teams\n> :6pmmapera: :6pmmapmira: :6pmmapera: :6pmmapsanhok:\n:FloraPurpleArrow: Top 9 advance to quarterfinals!\n\n### QUARTERFINAL 20CEST\n> 8.09 – 11.09\n> 16+2 Teams\n> :6pmmapera: :6pmmapmira: :6pmmapera: :6pmmapsanhok:\n:FloraPurpleArrow: Top 8 advance to semifinals!\n\n### SEMIFINAL 20CEST\n> 12.09 – 13.09\n> 16+2 Teams\n> :6pmmapera: :6pmmapmira: :6pmmapera: :6pmmapsanhok:\n:FloraPurpleArrow: Top 6 advance to finals!\n\n### FINAL 20CEST\n> 14.09\n> 12+4 Teams\n> Streamed by Festina\n> :6pmmapera: :6pmmapmira: :6pmmapera: :6pmmapmira: :6pmmapsanhok:";
 
-            const type = interaction.options.getString("type");
-            const title = interaction.options.getString("title");
+            const __filename = fileURLToPath(import.meta.url);
+            const __dirname = path.dirname(__filename);
 
-            if(!type) {
-                return interaction.reply({ content: "You need to specify a type!", ephemeral: true });
-            }
+            const imagePath = path.join(__dirname, '..', '..', 'src', 'assets', 'tournament', 'information', 'image.png');
+            const thumbPath = path.join(__dirname, '..', '..', 'src', 'assets', 'tournament', 'information', 'thumbnail.png');
 
-            if(!title) {
-                return interaction.reply({ content: "You need to specify a title!", ephemeral: true });
-            }
+            const imageAttachment = new AttachmentBuilder(imagePath);
+            const thumbnailAttachment = new AttachmentBuilder(thumbPath);
 
-            // logic to send the availability message
-            const channel = interaction.channel;
-
-            if (!channel) {
-                interaction.reply({ content: "A problem went wrong when trying to send tournament embed, please report this", ephemeral: true });
-                console.error(`Channel not found for server: ${serverName} ID: ${guildId} Channel: ${channel}`);
-                return;
-            }
-
-            // Check if the tournament settings exist for the guild
-            const tournamentSettings = await executeQuery(`
-                SELECT * FROM tournament_settings WHERE guild_id = ?
-            `, [guildId]);
-
-            if(tournamentSettings.length === 0) {
-                // Initialize tournament settings if not present
-                await executeQuery(`
-                    INSERT INTO tournament_settings (guild_id) VALUES (?)
-                `, [guildId]);
-                console.log(`No tournament settings found for guild: ${guildId}. Initialized default settings.`);
-            }
-
-            // Check if role is set for type
-            const roleId = tournamentSettings[0]?.[`${type}_role_id`];
-
-            if (!roleId) {
-                return interaction.reply({ content: `No role is set for ${type} tournament! Use \`/tournament role\` to set it.`, ephemeral: true });
-            }
-
-            // Send embed based on type
+            // create an embed for the information
             const embed = new EmbedBuilder()
-                .setColor("#0099ff")
-                .setTitle(title)
-                .setDescription(`React with if you can play and if you can't play.`)
-                .addFields(
-                    { name: "\nAvailable", value: "No players", inline: true },
-                    { name: "\nNot Available", value: "No players", inline: true }
-                )
 
-            // send the embed message to the channel
-            const embedMessage = await channel.send({ embeds: [embed] })
+                .setColor("#9d00ff")
+                .setImage('attachment://image.png')
+                .setThumbnail('attachment://thumbnail.png')
+                .setTitle("Tournament Information")
+                .setDescription(description)
+                .setFooter({ text: "By Festina" });
 
-            // Check if the role is set and mention it
-            if(roleId) {
-                channel.send({ content: `<@&${roleId}>` });
-            }
+            // Send the embed to the channel
+            await interaction.reply({ 
+                embeds: [embed], 
+                files: [imageAttachment, thumbnailAttachment]
+            });
 
-            // Add reactions to the message
-            await embedMessage.react("✅");
-            await embedMessage.react("❌");
-
-            // Store the message ID in the database
-            try {
-                await executeQuery(`
-                    INSERT INTO tournament_settings (guild_id, ${type}_message_id)
-                    VALUES (?, ?)
-                    ON DUPLICATE KEY UPDATE ${type}_message_id = VALUES(${type}_message_id)
-                `, [guildId, embedMessage.id]);
-
-                await interaction.reply({ content: `Tournament availability sent for ${type}!`, ephemeral: true });
-            } catch (error) {
-                console.error(`Error saving ${type}_message_id to database for: ${serverName} ID: ${guildId}`, error);
-                return interaction.reply({ content: `An error occurred while sending the message, please report this.`, ephemeral: true });
-            }
-        },
-
-        async setRole(interaction) {
-
-            const serverName = interaction.guild.name;
-            const guildId = interaction.guild?.id;
-
-            const type = interaction.options.getString("type");
-            const role = interaction.options.getRole("role");
-
-            // Validate inputs
-            if(!type) {
-                return interaction.reply({ content: "You need to specify a type!", ephemeral: true });
-            }
-
-            if(!role) {
-                return interaction.reply({ content: "You need to specify a role!", ephemeral: true });
-            }   
-
-            // Check if the role is already set as what user is trying to change it to
-            const tournamentSettings = await executeQuery(`
-                SELECT * FROM tournament_settings WHERE guild_id = ? AND ${type}_role_id = ?
-            `, [guildId, role.id]);
-
-            if (tournamentSettings.length > 0) {
-                if(tournamentSettings[0]?.[`${type}_role_id`] === role.id) {
-                    return interaction.reply({ content: `Role is already set as ${role} for ${type}!`, ephemeral: true });
-                }
-            }
-
-            // Save the role to the database
-            try {
-                await executeQuery(`
-                INSERT INTO tournament_settings (guild_id, ${type}_role_id)
-                VALUES (?, ?)
-                ON DUPLICATE KEY UPDATE ${type}_role_id = VALUES(${type}_role_id)
-            `, [guildId, role.id])
-
-                return interaction.reply({ content: `Role set as ${role} for ${type}!`, ephemeral: true });
-            } catch(error) {
-                console.error(`Error saving ${type}_role_id to database for: ${serverName} ID: ${guildId}`, error);
-                return interaction.reply({ content: `An error occurred while setting the role for ${type} tournament, please report this.`, ephemeral: true });
-            }
+            return interaction.followUp({ content: "Tournament information has been sent!", ephemeral: true });
         },
 
     development: true
