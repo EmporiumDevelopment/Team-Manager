@@ -923,5 +923,34 @@ export default {
             }
         },
 
+        async refreshRosterEmbed(guild, client) {
+
+            if (!guild) return;
+
+            const rosterData = await executeQuery(`
+                SELECT roster_channel_id FROM channels WHERE guild_id = ?
+            `, [guild.id]);
+
+            const channelId = rosterData[0]?.roster_channel_id;
+
+            const channel = channelId ? await guild.channels.fetch(channelId).catch(console.error) : null;
+
+            if (!channel) {
+                console.error(`No roster channel found for guild: ${guild.name} ID: ${guild.id}`);
+                return;
+            }
+
+            const interaction = {
+                guild,
+                channel,
+                client,
+                user: { tag: 'System', id: '0' }, // optional, for logging
+                reply: () => {}, // stub if needed
+                deferReply: () => {}, // stub if needed
+            };
+
+            await this.updateRosterEmbed(interaction);
+        },
+
         devlopment: false,
 };
