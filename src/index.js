@@ -4,7 +4,7 @@ import { REST } from '@discordjs/rest';
 import { Routes } from 'discord-api-types/v9';
 import { handleReactionAdd, handleReactionRemove } from "./handlers/scrimReactions.js";
 import CommandHandler from './handlers/commandHandler.js';
-import { handleMemberLeave } from './handlers/playerHandler.js';
+import { handleMemberLeave } from './handlers/roster/playerHandler.js';
 import { scheduleScrims } from './utils/scrimScheduler.js';
 import { sendLogEmbed } from './utils/logger.js';
 import { executeQuery } from './database.js';
