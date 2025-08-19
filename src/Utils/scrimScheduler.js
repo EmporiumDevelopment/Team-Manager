@@ -18,10 +18,15 @@ export function scheduleScrims(client) {
         console.log("Starting scheduled scrim channel clear...");
 
         // mixed scrims
-        const guildMixedRows = await executeQuery(`SELECT guild_id, channel_id FROM mixed_scrim_settings`);
+        const mixedScrimSettings = await executeQuery(`SELECT guild_id, channel_id, is_enabled FROM mixed_scrim_settings`);
         
+        if(mixedScrimSettings[0]?.is_enabled === 0) {
+            console.log("Mixed scrim channels are disabled. Skipping clear.");
+            return;
+        }
+
         // clear mixed scrim channels
-        guildMixedRows.forEach(async ({ guild_id, channel_id }) => {
+        mixedScrimSettings.forEach(async ({ guild_id, channel_id }) => {
             const guild = await client.guilds.fetch(guild_id).catch(() => null);
             if (!guild) return;
 
@@ -43,10 +48,15 @@ export function scheduleScrims(client) {
     cron.schedule('59 23 * * *', async () => {
         console.log("Starting scheduled scrim channel clear...");
 
-        const guildFemaleRows = await executeQuery(`SELECT guild_id, channel_id FROM female_scrim_settings`);
+        const femaleScrimSettings = await executeQuery(`SELECT guild_id, channel_id, is_enabled FROM female_scrim_settings`);
+
+        if(femaleScrimSettings[0]?.is_enabled === 0) {
+            console.log("Mixed scrim channels are disabled. Skipping clear.");
+            return;
+        }
 
         // clear female scrim channels
-        guildFemaleRows.forEach(async ({ guild_id, channel_id }) => {
+        femaleScrimSettings.forEach(async ({ guild_id, channel_id }) => {
             const guild = await client.guilds.fetch(guild_id).catch(() => null);
             if (!guild) return;
 
@@ -68,8 +78,18 @@ export function scheduleScrims(client) {
     // Send scrim availability embed at 7am for every server
     cron.schedule('0 7 * * *', async () => {
 
-        sendScrimEmbedMixed(client);
-        sendScrimEmbedClan(client);
+        const mixedScrimSettings = await executeQuery(`SELECT guild_id, channel_id, is_enabled FROM mixed_scrim_settings`);
+
+        if(mixedScrimSettings[0]?.is_enabled === 1) {
+            sendScrimEmbedMixed(client);
+        }
+
+        const clanScrimSettings = await executeQuery(`SELECT guild_id, channel_id, is_enabled FROM clan_scrim_settings`);
+
+        if(clanScrimSettings[0]?.is_enabled === 1) {
+            sendScrimEmbedClan(client);
+        }
+
 
     }, {
         timezone: TIMEZONE
@@ -78,8 +98,12 @@ export function scheduleScrims(client) {
     // send female scrim availability embed at 12am for every server
     cron.schedule('0 0 * * *', async () => {
         
-        sendScrimEmbedFemale(client);
-        
+        const femaleScrimSettings = await executeQuery(`SELECT guild_id, channel_id, is_enabled FROM female_scrim_settings`);
+
+        if(femaleScrimSettings[0]?.is_enabled === 1) {
+            sendScrimEmbedFemale(client);
+        }
+
     }, {
         timezone: TIMEZONE
     });
