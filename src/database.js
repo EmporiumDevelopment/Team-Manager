@@ -62,7 +62,7 @@ async function initializeDatabase() {
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 guild_id VARCHAR(255) NOT NULL,
                 discord_id VARCHAR(30) DEFAULT NULL,
-                player_name VARCHAR(255) NOT NULL,
+                player_name VARCHAR(255) DEFAULT NULL,
                 member_level ENUM('owner', 'leader', 'elite', 'member') DEFAULT 'member',
                 flag_emoji VARCHAR(50) DEFAULT '',
                 UNIQUE KEY unique_roster_entry (discord_id, guild_id)
@@ -77,6 +77,10 @@ async function initializeDatabase() {
                 leader_emoji VARCHAR(50) DEFAULT '',
                 elite_emoji VARCHAR(50) DEFAULT '',
                 member_emoji VARCHAR(50) DEFAULT '',
+                owner_role_id VARCHAR(255) DEFAULT NULL,
+                leader_role_id VARCHAR(255) DEFAULT NULL,
+                elite_role_id VARCHAR(255) DEFAULT NULL,
+                member_role_id VARCHAR(255) DEFAULT NULL,
                 embed_title VARCHAR(255) DEFAULT 'Team Roster'
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
@@ -101,7 +105,8 @@ async function initializeDatabase() {
                 role_id VARCHAR(255) DEFAULT NULL,
                 embed_title VARCHAR(255) DEFAULT 'Scrim Availability',
                 channel_id VARCHAR(255) DEFAULT NULL,
-                message_id VARCHAR(255) DEFAULT NULL
+                message_id VARCHAR(255) DEFAULT NULL,
+                is_enabled BOOLEAN DEFAULT FALSE
             );
         `);
 
@@ -111,7 +116,8 @@ async function initializeDatabase() {
                 role_id VARCHAR(255) DEFAULT NULL,
                 embed_title VARCHAR(255) DEFAULT 'Scrim Availability',
                 channel_id VARCHAR(255) DEFAULT NULL,
-                message_id VARCHAR(255) DEFAULT NULL
+                message_id VARCHAR(255) DEFAULT NULL,
+                is_enabled BOOLEAN DEFAULT FALSE
             )    
         `);
 
@@ -121,7 +127,8 @@ async function initializeDatabase() {
                 role_id VARCHAR(255) DEFAULT NULL,
                 embed_title VARCHAR(255) DEFAULT 'Scrim Availability',
                 channel_id VARCHAR(255) DEFAULT NULL,
-                message_id VARCHAR(255) DEFAULT NULL
+                message_id VARCHAR(255) DEFAULT NULL,
+                is_enabled BOOLEAN DEFAULT FALSE
             )    
         `);
 
@@ -267,6 +274,31 @@ async function initializeDatabase() {
                 channel_id VARCHAR(255) DEFAULT NULL,
                 message_id VARCHAR(255) DEFAULT NULL,
                 title VARCHAR(255) DEFAULT 'Player Activity'
+            );
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS social_media_settings (
+                guild_id VARCHAR(255) PRIMARY KEY,
+                channel_id VARCHAR(255) DEFAULT NULL,
+                message_id VARCHAR(255) DEFAULT NULL,
+                embed_title VARCHAR(255) DEFAULT 'Social Media'
+            );
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS social_media (
+                guild_id VARCHAR(255) PRIMARY KEY,
+                youtube_link VARCHAR(255) DEFAULT NULL,
+                youtube_prefix VARCHAR(50) DEFAULT NULL,
+                youtube_emoji VARCHAR(50) DEFAULT NULL,
+                tiktok_link VARCHAR(255) DEFAULT NULL,
+                tiktok_prefix VARCHAR(50) DEFAULT NULL,
+                tiktok_emoji VARCHAR(50) DEFAULT NULL,
+                instagram_link VARCHAR(255) DEFAULT NULL,
+                instagram_prefix VARCHAR(50) DEFAULT NULL,
+                instagram_emoji VARCHAR(50) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
 
