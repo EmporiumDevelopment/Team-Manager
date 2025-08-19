@@ -131,6 +131,33 @@ export default {
                         { name: "Clan", value: "clan" }
                     )
                 )
+        )
+        // toggle
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName("toggle")
+                .setDescription("Toggle scrim availability embed sending")
+                .addStringOption(option =>
+                    option
+                    .setName("team-type")
+                    .setDescription("The team you want to toggle scrim availability for. (mixed/female)")
+                    .setRequired(true)
+                    .addChoices(
+                        { name: "Mixed", value: "mixed" },
+                        { name: "Female", value: "female" },
+                        { name: "Clan", value: "clan" }
+                    )
+                )
+                .addStringOption(option =>
+                    option
+                        .setName("status")
+                        .setDescription("Enable or disable scrim availability embed sending")
+                        .setRequired(true)
+                        .addChoices(
+                            { name: "Enable", value: "enable" },
+                            { name: "Disable", value: "disable" }
+                        )
+                )
         ),
 
     async execute(interaction) {
@@ -157,7 +184,7 @@ export default {
             `, [guildId]);
 
         // Permission check
-        if(["channel", "sendavailability", "role", "title", "emojis"].includes(subcommand)) {
+        if(["channel", "sendavailability", "role", "title", "emojis", "fix", "toggle"].includes(subcommand)) {
             if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
                 return interaction.reply({ content: "You need **Manage Server** permission to modify the roster!", ephemeral: true });
             }
@@ -206,6 +233,8 @@ export default {
             await this.setScrimEmojis(interaction);
         } else if(subcommand === "fix") {
             await this.fixScrimEmbed(interaction);
+        } else if(subcommand === "toggle") {
+            await this.toggleScrim(interaction);
         }
     },
 
@@ -641,6 +670,49 @@ export default {
             await interaction.editReply({ content: "An error occurred while sending the scrim embed.", ephemeral: true });
         }
         
+    },
+
+    async toggleScrim(interaction) {
+
+        const guildId = interaction.guild.id;
+        const team = interaction.options.getString("team-type");
+        const status = interaction.options.getString("status")?.toLowerCase();
+
+        if(!team) {
+            return interaction.reply({ content: "You must specify which scrim availability you want to toggle.", ephemeral: true });
+        }
+
+        if(!status) {
+            return interaction.reply({ content: "You must specify the status to toggle the scrim availability.", ephemeral: true });
+        }
+
+        // Check if scrim settings exist for the guild
+        const scrimSettings = await executeQuery(`
+            SELECT * FROM ${team}_scrim_settings WHERE guild_id = ?
+        `, [guildId]);
+
+        if (scrimSettings.length === 0) {
+            // Initialize scrim settings if not present
+            await executeQuery(`
+                INSERT INTO ${team}_scrim_settings (guild_id) VALUES (?)
+            `, [guildId]);
+            console.log(`No scrim settings found for guild: ${guildId}. Initialized default settings.`);
+        }
+
+        // Update or insert the toggle status in scrim_settings
+        await executeQuery(`
+            INSERT INTO ${team}_scrim_settings (guild_id, is_enabled) VALUES (?, ?)
+            ON DUPLICATE KEY UPDATE is_enabled = VALUES(is_enabled)
+        `, [guildId, status === "enable" ? 1 : 0]);
+
+        // Send confirmation message
+        await sendLogEmbed(
+            guildId, 
+            `**Scrim Settings Updated**\n\nThe Scrim availability has been ${status}d for ${team}\n**By:** <@${interaction.user.id}>`, 
+            COLOUR_VALUES.EDIT
+        );
+
+        return interaction.reply({ content: `Scrim availability has been ${status}d for ${team}.`, ephemeral: true });
     },
 
     development: false
