@@ -6,7 +6,7 @@ import COLOUR_VALUES from "../utils/colourMap.js";
 export async function sendLogEmbed(guildId, logMessage, embedColour = COLOUR_VALUES.DEFAULT) {
 
     if (!guildId || typeof guildId !== "string") {
-        console.error("Error: guildId is invalid or missing.");
+        console.error("Error sending log: guildId is invalid or missing.");
         return;
     }
 
