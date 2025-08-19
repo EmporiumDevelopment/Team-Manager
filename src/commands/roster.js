@@ -135,6 +135,31 @@ export default {
                         .setDescription('Set the emoji for the member role')
                         .setRequired(true)
                 )
+        )
+        // role
+        .addSubcommand(subcommand =>
+            subcommand.setName('role')
+                .setDescription('Set the role to be given for each role')
+                .addRoleOption(option =>
+                    option.setName('owner')
+                        .setDescription('Set the role for the owner')
+                        .setRequired(true)
+                )
+                .addRoleOption(option =>
+                    option.setName('leader')
+                        .setDescription('Set the role for the leader')
+                        .setRequired(true)
+                )
+                .addRoleOption(option =>
+                    option.setName('elite')
+                        .setDescription('Set the role for the elite')
+                        .setRequired(true)
+                )
+                .addRoleOption(option =>
+                    option.setName('member')
+                        .setDescription('Set the role for the member')
+                        .setRequired(true)
+                )
         ),
 
         async execute(interaction) {
@@ -191,6 +216,8 @@ export default {
                 await this.editRosterMember(interaction);
             } else if (subcommand === 'emojis') {
                 await this.setRosterEmojis(interaction);
+            } else if (subcommand === 'role') {
+                await this.setRole(interaction);
             }
 
             if(subcommand === 'embed') {
@@ -206,11 +233,12 @@ export default {
         async addPlayer(interaction) {
 
             const guildId = interaction.guild.id;
+            
             const user = interaction.options.getUser('player');
             const playerName = interaction.options.getString('name');
             const level = interaction.options.getString('role');
             const emoji = interaction.options.getString('emoji');
-            const role = interaction.options.getString("role");
+            const userRole = interaction.options.getString('role');
         
             try {
 
@@ -231,17 +259,14 @@ export default {
                     return interaction.reply({ content: "Please provide a valid flag emoji for the player.", ephemeral: true });
                 }
 
-                if(!role) {
-                    return interaction.reply({ content: "Please select a valid role for the player.", ephemeral: true });
-                }
 
                 // Check if the user is already in the roster
-                const rosterRows = await executeQuery(`
+                const roster = await executeQuery(`
                     SELECT * FROM roster WHERE discord_id = ? AND guild_id = ?
                 `, [user.id, guildId]);
         
                 // If the user is already in the roster, return an error message
-                if (rosterRows.length > 0) {
+                if (roster.length > 0) {
                     return interaction.reply({ content: `<@${user.id}> is already in the roster!`, ephemeral: true });
                 }
         
@@ -255,10 +280,33 @@ export default {
                 // Log the addition
                 await sendLogEmbed(
                     guildId, 
-                    `**Roster Addition**\n\nA new player has been added to the roster\n\n**Player:** ${user}\n\n**Role:** ${role}\n**By:** <@${interaction.user.id}>.`
+                    `**Roster Addition**\n\nA new player has been added to the roster\n\n**Player:** ${user}\n\n**Role:** ${userRole}\n**By:** <@${interaction.user.id}>.`
                     , COLOUR_VALUES.ADD
                 );
                 await interaction.reply({ content: `<@${user.id}> has been added to the roster as ${level}!`, ephemeral: true });
+
+                // give player role
+                const rosterSettings = await executeQuery(`
+                    SELECT owner_role_id, leader_role_id, elite_role_id, member_role_id
+                    FROM roster_settings
+                    WHERE guild_id = ?;
+                `, [interaction.guild.id]);
+
+                const roleIdMap = {
+                    owner: rosterSettings[0].owner_role_id,
+                    leader: rosterSettings[0].leader_role_id,
+                    elite: rosterSettings[0].elite_role_id,
+                    member: rosterSettings[0].member_role_id
+                };
+
+                const roleIdToAssign = roleIdMap[level];
+
+                const member = await interaction.guild.members.fetch(user.id);
+                const role = interaction.guild.roles.cache.get(roleIdToAssign);
+
+                if (role && member) {
+                    await member.roles.add(role);
+                }
         
                 // Update the roster embed
                 await this.updateRosterEmbed(interaction);
@@ -287,6 +335,35 @@ export default {
                 if (rosterRows.length === 0) {
                     return interaction.reply({ content: `<@${user.id}> is not in the roster!`, ephemeral: true });
                 }
+
+                // Remove the role from the user
+                const playerData = await executeQuery(`
+                    SELECT member_level
+                    FROM roster
+                    WHERE discord_id = ? AND guild_id = ?;
+                `, [user.id, interaction.guild.id]);
+
+                const rosterSettings = await executeQuery(`
+                    SELECT owner_role_id, leader_role_id, elite_role_id, member_role_id
+                    FROM roster_settings
+                    WHERE guild_id = ?;
+                `, [interaction.guild.id]);
+
+                const roleIdMap = {
+                    owner: rosterSettings[0].owner_role_id,
+                    leader: rosterSettings[0].leader_role_id,
+                    elite: rosterSettings[0].elite_role_id,
+                    member: rosterSettings[0].member_role_id
+                };
+
+                const roleIdToRemove = roleIdMap[playerData[0].member_level];
+
+                const member = await interaction.guild.members.fetch(user.id);
+                const role = interaction.guild.roles.cache.get(roleIdToRemove);
+
+                if (role && member) {
+                    await member.roles.remove(role);
+                }
         
                 // Remove the player from the roster
                 await executeQuery(`
@@ -300,7 +377,7 @@ export default {
                     COLOUR_VALUES.REMOVE
                 );
                 await interaction.reply({ content: `<@${user.id}> has been removed from the roster.`, ephemeral: true });
-        
+
                 // Update the roster embed
                 await this.updateRosterEmbed(interaction);
             } catch (error) {
@@ -518,24 +595,30 @@ export default {
                     return interaction.reply({ content: "No players found in the roster!", ephemeral: true });
                 }
 
-                // Group players by role
-                const roleSections = {
-                    owner: "**OWNER**",
-                    leader: "**LEADER**",
-                    elite: "**ELITE**",
-                    member: "**MEMBER**"
+                const emojiSettings = await executeQuery(`
+                    SELECT owner_emoji, leader_emoji, elite_emoji, member_emoji FROM roster_settings WHERE guild_id = ?
+                `, [guildId]);
+
+                const roleEmojis = {
+                    owner: emojiSettings[0]?.owner_emoji || '',
+                    leader: emojiSettings[0]?.leader_emoji || '',
+                    elite: emojiSettings[0]?.elite_emoji || '',
+                    member: emojiSettings[0]?.member_emoji || ''
                 };
 
                 let description = "";
 
-                for (const role of ["owner", "leader", "elite", "member"]) {
-                    const players = rosterData.filter(player => player.member_level === role);
-                    if (players.length > 0) {
-                        description += `\n\n${roleSections[role]}\n`;
-                        description += players.map(player => `${player.flag_emoji} **${player.player_name}**`).join("\n");
+                if (rosterData.length > 0) {
+                    const roles = { owner: '**OWNER**', leader: '**LEADER**', elite: '**ELITE MEMBER**', member: '**MEMBER**' };
+                    for (const role of Object.keys(roles)) {
+                        const rolePlayers = rosterData.filter(p => p.member_level === role);
+                        if (rolePlayers.length > 0) {
+                            description += `\n\n${roles[role]}\n`;
+                            description += rolePlayers.map(player => ` ${roleEmojis[role]} | ${player.flag_emoji} | ${player.player_name}`).join('\n') + '\n';
+                        }
                     }
                 }
-
+        
                 const extraRosterData = await executeQuery(`
                     SELECT embed_title FROM roster_settings WHERE guild_id = ?
                 `, [guildId]);
@@ -767,6 +850,76 @@ export default {
             } catch (error) {
                 console.error(`Failed to set roster emojis for server: ${serverName} ID: ${guildId}:`, error);
                 return interaction.reply({ content: "An error occurred while setting the roster emojis.", ephemeral: true });
+            }
+        },
+
+        async setRole(interaction) {
+
+            const serverName = interaction.guild.name;
+            const guildId = interaction.guild.id;
+
+            const ownerEmoji = interaction.options.getRole('owner');
+            const leaderEmoji = interaction.options.getRole('leader');
+            const eliteEmoji = interaction.options.getRole('elite');
+            const memberEmoji = interaction.options.getRole('member');
+
+            try {
+
+                if(!ownerEmoji) {
+                    return interaction.reply({ content: "Please provide a valid role for the owner.", ephemeral: true });
+                }
+
+                if(!leaderEmoji) {
+                    return interaction.reply({ content: "Please provide a valid role for the leader.", ephemeral: true });
+                }
+
+                if(!eliteEmoji) {
+                    return interaction.reply({ content: "Please provide a valid role for elite member.", ephemeral: true });
+                }
+
+                if(!memberEmoji) {
+                    return interaction.reply({ content: "Please provide a valid role for member.", ephemeral: true });
+                }
+
+                // Check if roster settings exist
+                const rosterRows = await executeQuery(`
+                    SELECT * FROM roster_settings WHERE guild_id = ?
+                `, [guildId]);
+
+                if(rosterRows.length === 0) {
+                    // Initialize roster settings if not present
+                    await executeQuery(`
+                        INSERT INTO roster_settings (guild_id) VALUES (?)
+                    `, [guildId]);
+                    console.log(`No roster settings found for guild: ${guildId}. Initialized default settings.`);
+                }
+
+                // Insert or update the roles in the roster_settings table
+                await executeQuery(`
+                    INSERT INTO roster_settings (guild_id, owner_role_id, leader_role_id, elite_role_id, member_role_id)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                    owner_role_id = IF(VALUES(owner_role_id) IS NOT NULL, VALUES(owner_role_id), owner_role_id),
+                    leader_role_id = IF(VALUES(leader_role_id) IS NOT NULL, VALUES(leader_role_id), leader_role_id),
+                    elite_role_id = IF(VALUES(elite_role_id) IS NOT NULL, VALUES(elite_role_id), elite_role_id),
+                    member_role_id = IF(VALUES(member_role_id) IS NOT NULL, VALUES(member_role_id), member_role_id);
+                `, [guildId, ownerEmoji.id, leaderEmoji.id, eliteEmoji.id, memberEmoji.id]);
+
+                // Send logs
+                await sendLogEmbed(
+                    guildId, 
+                    `**Roster Settings Updated**\n\nThe Roster Roles have been updated\n\n**Owner Role:** ${ownerEmoji}\n**Leader Role:** ${leaderEmoji}\n**Elite Role:** ${eliteEmoji}\n**Member Role:** ${memberEmoji}\n**By:** ${interaction.user.username}`, 
+                    COLOUR_VALUES.EDIT
+                );
+
+                return interaction.reply({
+                    content: `Roster roles updated:\nOwner: ${ownerEmoji}\nLeader: ${leaderEmoji}\nElite: ${eliteEmoji}\nMember: ${memberEmoji}`,
+                    ephemeral: true
+                });
+            } catch (error) {
+                console.error(`Failed to set roster roles for server: ${serverName} ID: ${guildId}:`, error);
+                return interaction.reply({ content: "An error occurred while setting the roster roles.", ephemeral: true });
+
             }
         },
 
