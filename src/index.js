@@ -283,9 +283,7 @@ client.on(Events.InteractionCreate, async interaction => {
 });
 
 client.on(Events.GuildMemberRemove, async (member) => {
-    console.log(`Member left: ${member.user.tag} (${member.id}) from guild: ${member.guild.id}`);
-
-    return handleMemberLeave(member);
+    return handleMemberLeave(member.guild, member);
 });
 
 async function setup() {
