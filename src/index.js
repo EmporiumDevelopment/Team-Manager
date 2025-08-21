@@ -283,7 +283,7 @@ client.on(Events.InteractionCreate, async interaction => {
 });
 
 client.on(Events.GuildMemberRemove, async (member) => {
-    return handleMemberLeave(member.guild, member);
+    return handleMemberLeave(member);
 });
 
 async function setup() {
