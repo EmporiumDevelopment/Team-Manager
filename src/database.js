@@ -41,21 +41,6 @@ async function initializeDatabase() {
     try {
         console.log("Database connected successfully!");
 
-        // Create `channels` table
-        await db.execute(`
-            CREATE TABLE IF NOT EXISTS channels (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                guild_id VARCHAR(255) DEFAULT '',
-                roster_channel_id VARCHAR(255) DEFAULT NULL,
-                roster_message_id VARCHAR(255) DEFAULT NULL,
-                type ENUM('scrim', 'log', 'roster') NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE (guild_id),
-                UNIQUE (roster_channel_id),
-                UNIQUE (roster_message_id)
-            );
-        `);
-
         // Create `roster` table
         await db.execute(`
             CREATE TABLE IF NOT EXISTS roster (
@@ -73,6 +58,8 @@ async function initializeDatabase() {
         await db.execute(`
             CREATE TABLE IF NOT EXISTS roster_settings (
                 guild_id VARCHAR(255) PRIMARY KEY,
+                roster_channel_id VARCHAR(255) DEFAULT NULL,
+                roster_message_id VARCHAR(255) DEFAULT NULL,
                 owner_emoji VARCHAR(50) DEFAULT '',
                 leader_emoji VARCHAR(50) DEFAULT '',
                 elite_emoji VARCHAR(50) DEFAULT '',
@@ -92,9 +79,6 @@ async function initializeDatabase() {
                 emoji_16 VARCHAR(50) NOT NULL,
                 emoji_20 VARCHAR(50) NOT NULL,
                 emoji_23 VARCHAR(50) NOT NULL,
-                UNIQUE (emoji_16),
-                UNIQUE (emoji_20),
-                UNIQUE (emoji_23)
             );
         `);
 
@@ -151,12 +135,6 @@ async function initializeDatabase() {
                 public_channel_role_id VARCHAR(255) DEFAULT NULL,
                 team_channel_role_id VARCHAR(255) DEFAULT NULL,
                 clan_channel_role_id VARCHAR(255) DEFAULT NULL,
-                UNIQUE (public_channel_id),
-                UNIQUE (team_channel_id),
-                UNIQUE (clan_channel_id),
-                UNIQUE (public_channel_role_id),
-                UNIQUE (team_channel_role_id),
-                UNIQUE (clan_channel_role_id)
             );
         `);
 
@@ -168,10 +146,6 @@ async function initializeDatabase() {
                 female_message_id VARCHAR(255) DEFAULT NULL,
                 mixed_role_id VARCHAR(255) DEFAULT NULL,
                 mixed_message_id VARCHAR(255) DEFAULT NULL,
-                UNIQUE (female_role_id),
-                UNIQUE (female_message_id),
-                UNIQUE (mixed_role_id),
-                UNIQUE (mixed_message_id)
             );
         `);
 
