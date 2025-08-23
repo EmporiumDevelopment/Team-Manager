@@ -952,5 +952,5 @@ export default {
             await this.updateRosterEmbed(interaction);
         },
 
-        devlopment: false,
+        development: false,
 };

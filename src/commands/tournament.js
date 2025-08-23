@@ -88,7 +88,6 @@ export default {
 
             const embed = new EmbedBuilder()
                 .setColor("#9d00ff")
-                .setTitle("Roster Application")
                 .setDescription(description)
                 .setImage('attachment://tournament_informations.png');
 
@@ -101,7 +100,6 @@ export default {
 
             const embed = new EmbedBuilder()
                 .setColor("#9d00ff")
-                .setTitle("Prize Pool")
                 .setDescription(description);
 
             return embed;
@@ -113,7 +111,6 @@ export default {
 
             const embed = new EmbedBuilder()
                 .setColor("#9d00ff")
-                .setTitle("VIP Slots")
                 .setDescription(description)
                 .setFooter({ text: "by Festina x 6pm Esports" });
 
