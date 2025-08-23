@@ -515,5 +515,5 @@ export default {
 
     },
 
-    development: true,
+    development: false,
 }
