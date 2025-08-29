@@ -28,10 +28,7 @@ cron.schedule("00 07 * * *", async () => {
             `, [guild.id]);
 
             const channelId = scheduleSettings[0]?.announcements_channel_id;
-            if (!channelId) {
-                console.log(`Skipping guild ${guild.id}: No announcement channel set.`);
-                continue;
-            }
+            if (!channelId) continue;
 
             try {
                 await announceTodaysEvents(guild, client, team);
@@ -66,6 +63,5 @@ cron.schedule("0 0 * * *", async () => {
         }
     }
 });
-
 
 export default cron;

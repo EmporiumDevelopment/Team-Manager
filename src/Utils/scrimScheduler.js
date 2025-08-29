@@ -13,34 +13,57 @@ export function scheduleScrims(client) {
 
     console.log("Scrim scheduler initialized.");
 
-    // 🔹 Clear Mixed & Female scrim channels at 3 AM for every server
+    // 🔹 Clear Mixed & Clan scrim channels at 3 AM for every server
     cron.schedule('0 3 * * *', async () => {
+
         console.log("Starting scheduled scrim channel clear...");
 
         // mixed scrims
         const mixedScrimSettings = await executeQuery(`SELECT guild_id, channel_id, is_enabled FROM mixed_scrim_settings`);
+
+        const clanScrimSettings = await executeQuery(`SELECT guild_id, channel_id, is_enabled FROM clan_scrim_settings`);
         
-        if(mixedScrimSettings[0]?.is_enabled === 0) {
-            console.log("Mixed scrim channels are disabled. Skipping clear.");
-            return;
+        if(mixedScrimSettings[0]?.is_enabled) {
+            // clear mixed scrim channels
+            mixedScrimSettings.forEach(async ({ guild_id, channel_id }) => {
+
+                const guild = await client.guilds.fetch(guild_id).catch(() => null);
+
+                if (!guild) return;
+
+                const scrimChannel = await client.channels.fetch(channel_id).catch(() => null);
+                if (!scrimChannel) return;
+
+                try {
+                    const messages = await scrimChannel.messages.fetch({ limit: 100 });
+                    await scrimChannel.bulkDelete(messages, true);
+                    console.log(`[${guild.name} | ${guild.id}] Scrim channel cleared at 3 AM.`);
+                } catch (error) {
+                    console.error(`[${guild.name} | ${guild.id}] Error clearing scrim channel:`, error);
+                }
+            });
         }
 
-        // clear mixed scrim channels
-        mixedScrimSettings.forEach(async ({ guild_id, channel_id }) => {
-            const guild = await client.guilds.fetch(guild_id).catch(() => null);
-            if (!guild) return;
+        if(clanScrimSettings[0]?.is_enabled) {
+            // clear mixed scrim channels
+            clanScrimSettings.forEach(async ({ guild_id, channel_id }) => {
 
-            const scrimChannel = await client.channels.fetch(channel_id).catch(() => null);
-            if (!scrimChannel) return;
+                const guild = await client.guilds.fetch(guild_id).catch(() => null);
 
-            try {
-                const messages = await scrimChannel.messages.fetch({ limit: 100 });
-                await scrimChannel.bulkDelete(messages, true);
-                console.log(`[${guild.name} | ${guild.id}] Scrim channel cleared at 3 AM.`);
-            } catch (error) {
-                console.error(`[${guild.name} | ${guild.id}] Error clearing scrim channel:`, error);
-            }
-        });
+                if (!guild) return;
+
+                const scrimChannel = await client.channels.fetch(channel_id).catch(() => null);
+                if (!scrimChannel) return;
+
+                try {
+                    const messages = await scrimChannel.messages.fetch({ limit: 100 });
+                    await scrimChannel.bulkDelete(messages, true);
+                    console.log(`[${guild.name} | ${guild.id}] Scrim channel cleared at 3 AM.`);
+                } catch (error) {
+                    console.error(`[${guild.name} | ${guild.id}] Error clearing scrim channel:`, error);
+                }
+            });
+        }
     }, {
         timezone: TIMEZONE
     });

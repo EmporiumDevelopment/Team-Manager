@@ -12,9 +12,8 @@ async function cleanupCompletedEvents(client, guild, team) {
         WHERE s.status = 'completed' AND s.guild_id = ?;
     `, [guildId]);
 
-    if (!completedEvents.length) {
-        return console.log(`No completed events to clean for guild ${guildId}`);
-    }
+    // no complete events
+    if (!completedEvents.length) return;
 
     for (const event of completedEvents) {
         try {
