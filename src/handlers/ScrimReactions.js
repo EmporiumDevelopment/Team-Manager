@@ -98,10 +98,7 @@ export async function handleReactionRemove(reaction, user) {
     const embed = message.embeds[0];
     const guildId = message.guild?.id;
     
-    if (!embed || !guildId) {
-        console.log(`Error: Missing embed or guild ID`);
-        return;
-    }
+    if (!embed || !guildId) return;
 
     // Fetch scrim message IDs for both mixed & female scrims
     const scrimMessages = await executeQuery(`

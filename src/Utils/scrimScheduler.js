@@ -73,10 +73,7 @@ export function scheduleScrims(client) {
 
         const femaleScrimSettings = await executeQuery(`SELECT guild_id, channel_id, is_enabled FROM female_scrim_settings`);
 
-        if(femaleScrimSettings[0]?.is_enabled === 0) {
-            console.log("Mixed scrim channels are disabled. Skipping clear.");
-            return;
-        }
+        if(femaleScrimSettings[0]?.is_enabled === 0) return;
 
         // clear female scrim channels
         femaleScrimSettings.forEach(async ({ guild_id, channel_id }) => {

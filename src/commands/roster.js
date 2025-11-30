@@ -193,11 +193,11 @@ export default {
             }
 
             // Check if roster channel is set
-            if (!rosterSettings[0]?.roster_channel_id) {
+            if (!rosterSettings[0]?.channel_id) {
                 return interaction.reply({ content: "The roster channel has not been set up! Use `/roster channel` first.", ephemeral: true });
             }
         
-            const rosterChannelId = rosterSettings[0].roster_channel_id;
+            const rosterChannelId = rosterSettings[0].channel_id;
             const rosterChannel = await interaction.guild.channels.fetch(rosterChannelId);
         
             if (!rosterChannel) {
@@ -396,7 +396,7 @@ export default {
 
                 // 🔹 Fetch stored embed message ID
                 const rosterSettings = await executeQuery(`
-                    SELECT roster_message_id, roster_channel_id FROM roster_settings WHERE guild_id = ?
+                    SELECT message_id, channel_id FROM roster_settings WHERE guild_id = ?
                 `, [guildId]);
 
                 if(rosterSettings.length === 0) {
@@ -404,14 +404,14 @@ export default {
                     return;
                 }
         
-                if (!rosterSettings[0]?.roster_channel_id) {
+                if (!rosterSettings[0]?.channel_id) {
                     console.error(`No roster channel found in the database for server: ${serverName} ID: ${guildId}`);
                     return;
                 }
 
                 // 🔹 Fetch the roster channel
-                // If roster_channel_id is not set, log an error and return
-                const rosterChannelId = rosterSettings.length > 0 ? rosterSettings[0].roster_channel_id : null;
+                // If channel_id is not set, log an error and return
+                const rosterChannelId = rosterSettings.length > 0 ? rosterSettings[0].channel_id : null;
                 if (!rosterChannelId) {
                     console.error(`No roster channel ID found in the database for server: ${serverName} ID: ${guildId}`);
                     return;
@@ -423,13 +423,13 @@ export default {
                     return null;
                 });
 
-                if(!rosterSettings[0]?.roster_message_id) {
+                if(!rosterSettings[0]?.message_id) {
                     console.error(`No roster message ID found in the database for server: ${serverName} ID: ${guildId}`);
                     return;
                 }
 
                 // fetch the roster message ID from the database
-                const rosterMessageId = rosterSettings.length > 0 ? rosterSettings[0].roster_message_id : null;
+                const rosterMessageId = rosterSettings.length > 0 ? rosterSettings[0].message_id : null;
                 let rosterMessage = rosterMessageId ? await rosterChannel.messages.fetch(rosterMessageId).catch(error => {
                     console.error(`Error fetching roster message for server: ${serverName} ID: ${guildId}`, error);
                     return null;
@@ -488,7 +488,7 @@ export default {
         
                     if (rosterMessage) {
                         await executeQuery(`
-                            UPDATE roster_settings SET roster_message_id = ? WHERE guild_id = ?
+                            UPDATE roster_settings SET message_id = ? WHERE guild_id = ?
                         `, [rosterMessage.id, guildId]);
                     }
                 }
@@ -531,7 +531,7 @@ export default {
             
                 // After updating the title, check if the roster channel exists and update the embed
                 const channelRows = await executeQuery(`
-                    SELECT roster_channel_id FROM roster_settings WHERE guild_id = ?
+                    SELECT channel_id FROM roster_settings WHERE guild_id = ?
                 `, [guildId]);
             
                 if (channelRows.length > 0) {
@@ -561,21 +561,21 @@ export default {
                     console.log(`No roster settings found for guild: ${guildId}. Initialized default settings.`);
                 }
 
-                if(!channelRows[0]?.roster_channel_id) {
+                if(!channelRows[0]?.channel_id) {
                     console.error(`No roster channel found in the database for server: ${serverName} ID: ${guildId}`);
                     return interaction.reply({ content: "No roster channel found! Use `/roster channel` first.", ephemeral: true });
                 }
 
                 // Fetch the roster channel using the ID
-                const channel = interaction.guild.channels.cache.get(channelRows[0].roster_channel_id);
+                const channel = interaction.guild.channels.cache.get(channelRows[0].channel_id);
                 if (!channel) {
                     return interaction.reply({ content: "Roster channel is invalid or missing.", ephemeral: true });
                 }
 
                 // Check if an existing roster message exists and delete it
-                if (channelRows[0]?.roster_message_id) {
+                if (channelRows[0]?.message_id) {
                     try {
-                        const oldMessage = await channel.messages.fetch(channelRows[0]?.roster_message_id);
+                        const oldMessage = await channel.messages.fetch(channelRows[0]?.message_id);
                         await oldMessage.delete();
                         console.log("Old roster embed deleted.");
                     } catch (error) {
@@ -634,7 +634,7 @@ export default {
 
                 // Store the new message ID
                 await executeQuery(`
-                    UPDATE roster_settings SET roster_message_id = ? WHERE guild_id = ?
+                    UPDATE roster_settings SET message_id = ? WHERE guild_id = ?
                 `, [message.id, guildId]);
 
                 sendLogEmbed(
@@ -735,9 +735,9 @@ export default {
                 }
 
                 await executeQuery(`
-                    INSERT INTO roster_settings (guild_id, roster_channel_id)
+                    INSERT INTO roster_settings (guild_id, channel_id)
                     VALUES (?, ?)
-                    ON DUPLICATE KEY UPDATE roster_channel_id = VALUES(roster_channel_id);
+                    ON DUPLICATE KEY UPDATE channel_id = VALUES(channel_id);
                 `, [guildId, rosterChannel.id]);
 
                 const rosterSettings = await executeQuery(`
@@ -768,9 +768,9 @@ export default {
 
                 // Store Embed Message ID in Database
                 await executeQuery(`
-                    INSERT INTO roster_settings (guild_id, roster_message_id)
+                    INSERT INTO roster_settings (guild_id, message_id)
                     VALUES (?, ?)
-                    ON DUPLICATE KEY UPDATE roster_message_id = VALUES(roster_message_id);
+                    ON DUPLICATE KEY UPDATE message_id = VALUES(message_id);
                 `, [guildId, rosterMessage.id]);
 
                 // Log the setup
@@ -928,10 +928,10 @@ export default {
             if (!guild) return;
 
             const rosterData = await executeQuery(`
-                SELECT roster_channel_id FROM roster_settings WHERE guild_id = ?
+                SELECT channel_id FROM roster_settings WHERE guild_id = ?
             `, [guild.id]);
 
-            const channelId = rosterData[0]?.roster_channel_id;
+            const channelId = rosterData[0]?.channel_id;
 
             const channel = channelId ? await guild.channels.fetch(channelId).catch(console.error) : null;
 

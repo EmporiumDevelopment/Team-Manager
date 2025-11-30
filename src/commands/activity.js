@@ -24,12 +24,6 @@ export default {
             subcommand
                 .setName("add")
                 .setDescription("Add player activity points.")
-                .addUserOption(option =>
-                    option
-                        .setName("player")
-                        .setDescription("Select the player to add points to.")
-                        .setRequired(true)
-                )
                 .addStringOption(option =>
                     option
                         .setName("game-result")
@@ -39,6 +33,30 @@ export default {
                             { name: "Win", value: "win" },
                             { name: "Loss", value: "loss" }
                         )
+                )
+                .addUserOption(option =>
+                    option
+                        .setName("player1")
+                        .setDescription("Select the player to add points to.")
+                        .setRequired(true)
+                )
+                .addUserOption(option =>
+                    option
+                        .setName("player2")
+                        .setDescription("Select the player to add points to.")
+                        .setRequired(false)
+                )
+                .addUserOption(option =>
+                    option
+                        .setName("player3")
+                        .setDescription("Select the player to add points to.")
+                        .setRequired(false)
+                )
+                .addUserOption(option =>
+                    option
+                        .setName("player4")
+                        .setDescription("Select the player to add points to.")
+                        .setRequired(false)
                 )
         )
         // remove
@@ -155,36 +173,47 @@ export default {
     async addActivity(interaction) {
 
         const guildId = interaction.guild.id;
-        const user = interaction.options.getUser("player");
+        const players = [];
         const result = interaction.options.getString("game-result");
-
-        if (!user) {
-            return interaction.reply({ content: "Error: No player specified!", ephemeral: true });
-        }
 
         await interaction.deferReply({ ephemeral: true });
 
         try {
+            // 4 = max amount of player inputs
+            for (let i = 1; i <= 4; i++) {
+                const player = interaction.options.getUser(`player${i}`);
+                if (player) {
+                    players.push(player);
+                }
+            }
+
+            if(players.length === 0) {
+                return interaction.reply({ content: "At least one player must be specified.", ephemeral: true });
+            }
+
             let points = result === "win" ? 3 : 1;
             let wins = result === "win" ? 1 : 0;
 
-            // Store player activity with correct points
-            await executeQuery(`
-                INSERT INTO player_activity (guild_id, user_id, games_played, wins, total_points)
-                VALUES (?, ?, 1, ?, ?)
-                ON DUPLICATE KEY UPDATE 
-                    games_played = games_played + 1, 
-                    wins = wins + ?,
-                    total_points = total_points + ?;
-            `, [guildId, user.id, wins, points, wins, points]);
+            for (const player of players) {
+                // update each player's activity
+                await executeQuery(`
+                    INSERT INTO player_activity (guild_id, user_id, games_played, wins, total_points)
+                    VALUES (?, ?, 1, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        games_played = games_played + 1,
+                        wins = wins + ?,
+                        total_points = total_points + ?;
+                `, [guildId, player.id, wins, points, wins, points]);
+            }
 
             // send confirmation
-            await interaction.editReply({ content: `**${user.username}**'s activity recorded!\nMatch Result: **${result}**`, ephemeral: true });
+            await interaction.editReply({ content: `**${players.length} player(s)** activity recorded!\nMatch Result: **${result}**`, ephemeral: true });
 
             // send log
+            let playerMentions = players.map(p => `<@${p.id}>`).join(", ");
             await sendLogEmbed(
                 guildId,
-                `**Scrim Activity**\n\nScrim activity has been recorded\n\n**Player:** <@${user.id}>\n**Game Result:** ${result}\n**By:** <@${interaction.user.id}>`,
+                `**Scrim Activity**\n\nScrim activity has been recorded\n\n**Players:** ${playerMentions}\n**Game Result:** ${result}\n**By:** <@${interaction.user.id}>`,
                 COLOUR_VALUES.ADD
             );
 
@@ -388,5 +417,5 @@ export default {
             }
     },
 
-    development: false
+    development: true
 };

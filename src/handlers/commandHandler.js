@@ -26,7 +26,7 @@ class CommandHandler {
             }
         }
 
-        // 🔥 Manually register the scrim-related commands
+        // register the scrim-related commands
         this.commands.set("sendscrimembed", { execute: sendScrimEmbedMixed });
     }
 

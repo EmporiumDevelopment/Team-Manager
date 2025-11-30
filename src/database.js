@@ -58,8 +58,8 @@ async function initializeDatabase() {
         await db.execute(`
             CREATE TABLE IF NOT EXISTS roster_settings (
                 guild_id VARCHAR(255) PRIMARY KEY,
-                roster_channel_id VARCHAR(255) DEFAULT NULL,
-                roster_message_id VARCHAR(255) DEFAULT NULL,
+                channel_id VARCHAR(255) DEFAULT NULL,
+                message_id VARCHAR(255) DEFAULT NULL,
                 owner_emoji VARCHAR(50) DEFAULT '',
                 leader_emoji VARCHAR(50) DEFAULT '',
                 elite_emoji VARCHAR(50) DEFAULT '',
@@ -78,7 +78,7 @@ async function initializeDatabase() {
                 guild_id VARCHAR(255) PRIMARY KEY,
                 emoji_16 VARCHAR(50) NOT NULL,
                 emoji_20 VARCHAR(50) NOT NULL,
-                emoji_23 VARCHAR(50) NOT NULL,
+                emoji_23 VARCHAR(50) NOT NULL
             );
         `);
 
@@ -134,7 +134,7 @@ async function initializeDatabase() {
                 clan_channel_id VARCHAR(255) DEFAULT NULL,
                 public_channel_role_id VARCHAR(255) DEFAULT NULL,
                 team_channel_role_id VARCHAR(255) DEFAULT NULL,
-                clan_channel_role_id VARCHAR(255) DEFAULT NULL,
+                clan_channel_role_id VARCHAR(255) DEFAULT NULL
             );
         `);
 
@@ -145,7 +145,7 @@ async function initializeDatabase() {
                 female_role_id VARCHAR(255) DEFAULT NULL,
                 female_message_id VARCHAR(255) DEFAULT NULL,
                 mixed_role_id VARCHAR(255) DEFAULT NULL,
-                mixed_message_id VARCHAR(255) DEFAULT NULL,
+                mixed_message_id VARCHAR(255) DEFAULT NULL
             );
         `);
 
@@ -274,6 +274,49 @@ async function initializeDatabase() {
                 instagram_emoji VARCHAR(50) DEFAULT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS earnings_settings (
+                guild_id VARCHAR(255) PRIMARY KEY,
+                channel_id VARCHAR(255) DEFAULT NULL,
+                message_id VARCHAR(255) DEFAULT NULL,
+                embed_title VARCHAR(255) DEFAULT 'Team Earnings'
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS earnings (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                guild_id VARCHAR(255) NOT NULL,
+                amount DECIMAL(10, 2) NOT NULL,
+                event_name VARCHAR(255) NOT NULL,
+                result VARCHAR(50) DEFAULT NULL,
+                paid_out BOOLEAN DEFAULT FALSE,
+                slot_cost DECIMAL(10, 2) DEFAULT 0,
+                date DATE DEFAULT CURRENT_DATE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS earnings_players (
+                earning_id INT NOT NULL,
+                guild_id VARCHAR(255) NOT NULL,
+                player_id VARCHAR(255) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS earnings_payouts (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                guild_id VARCHAR(255) NOT NULL,
+                earning_id INT NOT NULL,
+                total_amount DECIMAL(10, 2) NOT NULL,
+                authorizer_id VARCHAR(30) NOT NULL,
+                player_id VARCHAR(30) NOT NULL,
+                player_split_amount DECIMAL(10, 2) NOT NULL,
+                date DATE DEFAULT CURRENT_DATE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
 
     } catch (error) {
