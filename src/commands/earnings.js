@@ -588,5 +588,5 @@ export default {
         return embed;
     },
 
-    development: true
+    development: false
 };

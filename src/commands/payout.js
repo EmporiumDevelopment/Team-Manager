@@ -102,5 +102,5 @@ export default {
         return interaction.editReply(`Payout of €${payoutAmount} has been processed and earnings marked as paid out for ${playerData.length} player(s).`);
     },
 
-    development: true
+    development: false
 }
