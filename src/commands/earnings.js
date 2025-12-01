@@ -210,6 +210,12 @@ export default {
 
             await interaction.editReply({ content: `Piggy Bank channel set to ${channel}.`, ephemeral: true });
 
+        await sendLogEmbed(
+            guildId, 
+            `**Piggy Bank Channel Set**\n\nPiggy Bank channel has been set to <#${channel.id}>.\n**By:** <@${interaction.user.id}>.`,
+            COLOUR_VALUES.INFO
+        );
+
         } catch (error) {
             console.error(`Failed to set piggy bank channel:`, error);
             return interaction.editReply({ content: "An error occurred while setting up the piggy bank channel.", ephemeral: true });
