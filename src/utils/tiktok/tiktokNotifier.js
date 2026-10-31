@@ -144,15 +144,24 @@ export async function checkGuildForNewVideos(client, guildId) {
     return announced;
 }
 
-// Polls every 5 minutes. Each guild is checked independently so one broken
-// connection doesn't stop the others.
+// How often to check for new uploads, in whole minutes (TIKTOK_CHECK_INTERVAL in
+// .env, 1-60, default 1). Each check is one API request per connected server, far
+// under TikTok's 600 requests/minute limit; checking more often than every minute
+// gains little because TikTok takes minutes to make new uploads visible anyway.
+export function getCheckIntervalMinutes() {
+    const minutes = Number.parseInt(process.env.TIKTOK_CHECK_INTERVAL, 10);
+    return Number.isInteger(minutes) && minutes >= 1 && minutes <= 60 ? minutes : 1;
+}
+
+// Each guild is checked independently so one broken connection doesn't stop the others.
 export function startTikTokWatcher(client) {
     if (!isTikTokConfigured()) {
         console.log("[TikTok] TIKTOK_CLIENT_KEY / TIKTOK_CLIENT_SECRET / TIKTOK_REDIRECT_URI not set — TikTok notifications disabled.");
         return;
     }
 
-    cron.schedule("*/5 * * * *", async () => {
+    const minutes = getCheckIntervalMinutes();
+    cron.schedule(minutes === 1 ? "* * * * *" : `*/${minutes} * * * *`, async () => {
         if (checkInProgress) return;
         checkInProgress = true;
         try {
@@ -173,5 +182,5 @@ export function startTikTokWatcher(client) {
         }
     });
 
-    console.log("[TikTok] Upload watcher started (every 5 minutes).");
+    console.log(`[TikTok] Upload watcher started (every ${minutes === 1 ? "minute" : `${minutes} minutes`}).`);
 }

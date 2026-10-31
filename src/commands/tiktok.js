@@ -6,7 +6,7 @@ import {
     buildAuthorizeUrl, createOAuthState, exchangeCode, fetchRecentVideos, fetchUserInfo, isTikTokConfigured,
 } from "../utils/tiktok/tiktokApi.js";
 import {
-    DEFAULT_ANNOUNCEMENT, buildAnnouncement, checkGuildForNewVideos, getTikTokSettings, getValidAccessToken, newestVideoTime,
+    DEFAULT_ANNOUNCEMENT, buildAnnouncement, checkGuildForNewVideos, getCheckIntervalMinutes, getTikTokSettings, getValidAccessToken, newestVideoTime,
 } from "../utils/tiktok/tiktokNotifier.js";
 
 // How long a /tiktok connect login link stays valid.
@@ -315,7 +315,7 @@ export default {
             await executeQuery(`
                 UPDATE tiktok_settings SET is_enabled = TRUE, last_video_time = GREATEST(last_video_time, ?) WHERE guild_id = ?
             `, [newestVideoTime(videos), guildId]);
-            await interaction.editReply({ content: `TikTok announcements enabled. New uploads will be posted in <#${settings.channel_id}> (checked every 5 minutes).` });
+            await interaction.editReply({ content: `TikTok announcements enabled. New uploads will be posted in <#${settings.channel_id}> (checked every ${getCheckIntervalMinutes() === 1 ? "minute" : `${getCheckIntervalMinutes()} minutes`}).` });
         }
 
         await sendLogEmbed(
