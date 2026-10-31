@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, PermissionsBitField } from "discord.js";
+import { MessageFlags, PermissionsBitField, SlashCommandBuilder } from "discord.js";
 import { executeQuery } from "../database.js";
 import { sendLogEmbed } from "../utils/logger.js";
 import COLOUR_VALUES from "../utils/colourMap.js";
@@ -27,7 +27,7 @@ export default {
         // Admin permission check
         if (["title", "channel"].includes(subcommand)) {
             if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-                return interaction.reply({ content: "You need **Manage Server** permission to manage the logs!", ephemeral: true });
+                return interaction.reply({ content: "You need **Manage Server** permission to manage the logs!", flags: MessageFlags.Ephemeral });
             }
         }
 
@@ -50,7 +50,7 @@ export default {
     
         // Check if guild is setup for logs
         if (!logRows.length || !logRows[0]?.channel_id) {
-            return interaction.reply({ content: "Logs channel has not been set up yet! Use `/logs channel` to set it up.", ephemeral: true });
+            return interaction.reply({ content: "Logs channel has not been set up yet! Use `/logs channel` to set it up.", flags: MessageFlags.Ephemeral });
         }
         
         const logsChannelId = logRows.length > 0 && logRows[0].channel_id ? logRows[0].channel_id : null;
@@ -58,7 +58,7 @@ export default {
 
         // Check if the channel exists
         if (!logsChannel) {
-                return interaction.reply({ content: "The logs channel no longer exists! Use `/logs channel` again.", ephemeral: true });
+                return interaction.reply({ content: "The logs channel no longer exists! Use `/logs channel` again.", flags: MessageFlags.Ephemeral });
             }
 
         // Other subcommand checks
@@ -74,7 +74,7 @@ export default {
         const channel = interaction.options.getChannel("channel");
 
         if (!channel) {
-            return interaction.reply({ content: "Please provide a valid channel!", ephemeral: true });
+            return interaction.reply({ content: "Please provide a valid channel!", flags: MessageFlags.Ephemeral });
         }
 
         try {
@@ -92,13 +92,13 @@ export default {
                 COLOUR_VALUES.EDIT
             );
             if(interaction.deferred || interaction.replied) {
-                return interaction.followUp({ content: `Logs channel successfully set to <#${channel.id}>`, ephemeral: true });
+                return interaction.followUp({ content: `Logs channel successfully set to <#${channel.id}>`, flags: MessageFlags.Ephemeral });
             } else {
-                return interaction.reply({ content: `Logs channel successfully set to <#${channel.id}>`, ephemeral: true });
+                return interaction.reply({ content: `Logs channel successfully set to <#${channel.id}>`, flags: MessageFlags.Ephemeral });
             }
         } catch (error) {
             console.error(`Failed to set roster channel for Server: ${serverName} ID: ${guildId}:`, error);
-            return interaction.reply({ content: "An error occurred while setting up the roster channel.", ephemeral: true });
+            return interaction.reply({ content: "An error occurred while setting up the roster channel.", flags: MessageFlags.Ephemeral });
         }
     },
 
@@ -120,10 +120,10 @@ export default {
                 `**Log Settings Updated**\n\n The Logs Title has been changed\n\n** New title:** "${title}"\n**By:** ${interaction.user.tag}.`
                 , COLOUR_VALUES.EDIT
             );
-            return interaction.reply({ content: `Logs title set to "${title}".`, ephemeral: true });
+            return interaction.reply({ content: `Logs title set to "${title}".`, flags: MessageFlags.Ephemeral });
         } catch (error) {
             console.error(`Failed to set logs title for server: ${serverName} ID: ${guildId}:`, error);
-            return interaction.reply({ content: "An error occurred while setting the logs title.", ephemeral: true });
+            return interaction.reply({ content: "An error occurred while setting the logs title.", flags: MessageFlags.Ephemeral });
         }
     },
     development: false

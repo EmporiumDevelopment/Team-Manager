@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from "@discordjs/builders";
-import { PermissionsBitField } from "discord.js";
+import { MessageFlags, PermissionsBitField } from "discord.js";
 import { sendLogEmbed } from "../utils/logger.js";
 import { executeQuery } from "../database.js";
 import COLOUR_VALUES from "../utils/colourMap.js";
@@ -147,7 +147,7 @@ export default {
 
         // Check if guildId is available
         if(!guildId) {
-            return interaction.reply({ content: "Error: Could not determine guild ID.", ephemeral: true });
+            return interaction.reply({ content: "Error: Could not determine guild ID.", flags: MessageFlags.Ephemeral });
         }
 
         // Check if roster settings exist
@@ -166,7 +166,7 @@ export default {
         // Permission check
         if(["channel", "sendavailability", "role", "title", "fix", "toggle"].includes(subcommand)) {
             if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-                return interaction.reply({ content: "You need **Manage Server** permission to modify the roster!", ephemeral: true });
+                return interaction.reply({ content: "You need **Manage Server** permission to modify the roster!", flags: MessageFlags.Ephemeral });
             }
         }
 
@@ -200,7 +200,7 @@ export default {
         }
 
         if (!guildId) {
-            return interaction.reply({ content: "Error: Could not determine guild ID.", ephemeral: true });
+            return interaction.reply({ content: "Error: Could not determine guild ID.", flags: MessageFlags.Ephemeral });
         }
 
         if(subcommand === "role") {
@@ -227,12 +227,12 @@ export default {
         try {
 
             if(!team) {
-                return interaction.reply({ content: "You must specify the team you want to set the mentionable role for. (Mixed/Female)", ephemeral: true });
+                return interaction.reply({ content: "You must specify the team you want to set the mentionable role for. (Mixed/Female)", flags: MessageFlags.Ephemeral });
             }
 
             // Check if role is valid
             if (!role) {
-                return interaction.reply({ content: "Please provide a valid role!", ephemeral: true });
+                return interaction.reply({ content: "Please provide a valid role!", flags: MessageFlags.Ephemeral });
             }
 
             // Check if scrim settings exist for the guild
@@ -261,10 +261,10 @@ export default {
                 COLOUR_VALUES.EDIT
             );
 
-            return interaction.reply({ content: `Scrim availability role set to ${role}.`, ephemeral: true });
+            return interaction.reply({ content: `Scrim availability role set to ${role}.`, flags: MessageFlags.Ephemeral });
         } catch (error) {
             console.error(`Failed to set Scrim Availability role for server: ${serverName} ID: ${guildId}:`, error);
-            return interaction.reply({ content: "An error occurred while setting the Scrim Availability role.", ephemeral: true });
+            return interaction.reply({ content: "An error occurred while setting the Scrim Availability role.", flags: MessageFlags.Ephemeral });
         }
     },
 
@@ -279,11 +279,11 @@ export default {
         try {
 
             if(!team) {
-                return interaction.reply({ content: "You must specify the team you want to change the title for. (Mixed/Female)", ephemeral: true });
+                return interaction.reply({ content: "You must specify the team you want to change the title for. (Mixed/Female)", flags: MessageFlags.Ephemeral });
             }
 
             if(!title) {
-                return interaction.reply({ content: "Please provide a valid title for the scrim availability embed.", ephemeral: true });
+                return interaction.reply({ content: "Please provide a valid title for the scrim availability embed.", flags: MessageFlags.Ephemeral });
             }
 
             // Check if scrim settings exist for the guild
@@ -312,10 +312,10 @@ export default {
                 COLOUR_VALUES.EDIT
             );
 
-            return interaction.reply({ content: `Scrim availability embed title set to "${title}".`, ephemeral: true });
+            return interaction.reply({ content: `Scrim availability embed title set to "${title}".`, flags: MessageFlags.Ephemeral });
         } catch (error) {
             console.error(`Failed to set scrim title for server: ${serverName} ID: ${guildId}:`, error);
-            return interaction.reply({ content: "An error occurred while setting the scrim title.", ephemeral: true });
+            return interaction.reply({ content: "An error occurred while setting the scrim title.", flags: MessageFlags.Ephemeral });
         }
     },
 
@@ -328,14 +328,14 @@ export default {
         const channel = interaction.options.getChannel("channel");
 
         try {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             if(!team) {
-                return interaction.editReply({ content: "You must specify which team you want to set scrims up for. (Mixed/Female)", ephemeral: true });
+                return interaction.editReply({ content: "You must specify which team you want to set scrims up for. (Mixed/Female)" });
             }
 
             if(!channel) {
-                return interaction.editReply({ content: "You must specify the channel you want to set.", ephemeral: true });
+                return interaction.editReply({ content: "You must specify the channel you want to set." });
             }
 
             const scrimSettings = await executeQuery(`
@@ -363,16 +363,16 @@ export default {
                 COLOUR_VALUES.EDIT
             );
 
-            return interaction.editReply({ content: `Scrim availability channel set to ${channel}.`, ephemeral: true });
+            return interaction.editReply({ content: `Scrim availability channel set to ${channel}.` });
         } catch (error) {
             console.error(`Failed to set Scrim Availability channel for server: ${serverName} ID: ${guildId}:`, error);
-            return interaction.editReply({ content: "An error occurred while setting up the scrim channel.", ephemeral: true });
+            return interaction.editReply({ content: "An error occurred while setting up the scrim channel." });
         }
     },
 
     async fixScrimEmbed(interaction) {
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const guildId = interaction.guild.id;
         const team = interaction.options.getString("team-type");
@@ -440,10 +440,10 @@ export default {
         const team = interaction.options.getString("team-type");
 
         if(!team) {
-            return interaction.reply({ content: "You must specify which scrim availability you want to send.", ephemeral: true });
+            return interaction.reply({ content: "You must specify which scrim availability you want to send.", flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const scrimSettings = await executeQuery(`
             SELECT channel_id, embed_title, role_id, message_id FROM ${team}_scrim_settings WHERE guild_id = ?
@@ -504,7 +504,7 @@ export default {
 
         } catch (error) {
             console.error(`[${guild.name} | ${guildId}] Error sending scrim embed:`, error);
-            await interaction.editReply({ content: "An error occurred while sending the scrim embed.", ephemeral: true });
+            await interaction.editReply({ content: "An error occurred while sending the scrim embed." });
         }
         
     },
@@ -516,11 +516,11 @@ export default {
         const status = interaction.options.getString("status")?.toLowerCase();
 
         if(!team) {
-            return interaction.reply({ content: "You must specify which scrim availability you want to toggle.", ephemeral: true });
+            return interaction.reply({ content: "You must specify which scrim availability you want to toggle.", flags: MessageFlags.Ephemeral });
         }
 
         if(!status) {
-            return interaction.reply({ content: "You must specify the status to toggle the scrim availability.", ephemeral: true });
+            return interaction.reply({ content: "You must specify the status to toggle the scrim availability.", flags: MessageFlags.Ephemeral });
         }
 
         // Check if scrim settings exist for the guild
@@ -549,7 +549,7 @@ export default {
             COLOUR_VALUES.EDIT
         );
 
-        return interaction.reply({ content: `Scrim availability has been ${status}d for ${team}.`, ephemeral: true });
+        return interaction.reply({ content: `Scrim availability has been ${status}d for ${team}.`, flags: MessageFlags.Ephemeral });
     },
 
     development: false

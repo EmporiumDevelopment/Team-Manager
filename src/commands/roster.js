@@ -179,7 +179,7 @@ export default {
             // previously missing here, letting any member change the auto-assigned roles).
             if (["add", "remove", "title", "fix", "edit", "channel", "emojis", "cleanup", "role", "embed"].includes(subcommand)) {
                 if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-                    return interaction.reply({ content: "You need **Manage Server** permission to modify the roster!", ephemeral: true });
+                    return interaction.reply({ content: "You need **Manage Server** permission to modify the roster!", flags: MessageFlags.Ephemeral });
                 }
             }
 
@@ -203,14 +203,14 @@ export default {
 
             // Check if roster channel is set
             if (!rosterSettings[0]?.channel_id) {
-                return interaction.reply({ content: "The roster channel has not been set up! Use `/roster channel` first.", ephemeral: true });
+                return interaction.reply({ content: "The roster channel has not been set up! Use `/roster channel` first.", flags: MessageFlags.Ephemeral });
             }
         
             const rosterChannelId = rosterSettings[0].channel_id;
             const rosterChannel = await interaction.guild.channels.fetch(rosterChannelId).catch(() => null);
         
             if (!rosterChannel) {
-                return interaction.reply({ content: "The roster channel no longer exists! Use `/roster channel` again.", ephemeral: true });
+                return interaction.reply({ content: "The roster channel no longer exists! Use `/roster channel` again.", flags: MessageFlags.Ephemeral });
             }
         
             if (subcommand === 'add') {
@@ -237,7 +237,7 @@ export default {
                     .setImage('attachment://roster_image.jpg')
                     .setColor(0xFFFFFF)
                 await rosterChannel.send({ embeds: [embed], files: [imageAttachment] });
-                await interaction.reply({ content: "Roster embed image has been sent to the roster channel.", ephemeral: true, files: [imageAttachment] });
+                await interaction.reply({ content: "Roster embed image has been sent to the roster channel.", flags: MessageFlags.Ephemeral, files: [imageAttachment] });
             }
         },
         
@@ -255,19 +255,19 @@ export default {
 
                 // Validate user input
                 if(!user) {
-                    return interaction.reply({ content: "Please specify a user to add to the roster.", ephemeral: true });
+                    return interaction.reply({ content: "Please specify a user to add to the roster.", flags: MessageFlags.Ephemeral });
                 }
 
                 if(!playerName) {
-                    return interaction.reply({ content: "Please provide a valid player name.", ephemeral: true });
+                    return interaction.reply({ content: "Please provide a valid player name.", flags: MessageFlags.Ephemeral });
                 }
 
                 if(!level) {
-                    return interaction.reply({ content: "Please select a valid role for the player.", ephemeral: true });
+                    return interaction.reply({ content: "Please select a valid role for the player.", flags: MessageFlags.Ephemeral });
                 }
 
                 if(!emoji) {
-                    return interaction.reply({ content: "Please provide a valid flag emoji for the player.", ephemeral: true });
+                    return interaction.reply({ content: "Please provide a valid flag emoji for the player.", flags: MessageFlags.Ephemeral });
                 }
 
 
@@ -278,7 +278,7 @@ export default {
         
                 // If the user is already in the roster, return an error message
                 if (roster.length > 0) {
-                    return interaction.reply({ content: `<@${user.id}> is already in the roster!`, ephemeral: true });
+                    return interaction.reply({ content: `<@${user.id}> is already in the roster!`, flags: MessageFlags.Ephemeral });
                 }
         
                 // Insert the new player into the roster
@@ -294,7 +294,7 @@ export default {
                     `**Roster Addition**\n\nA new player has been added to the roster\n\n**Player:** ${cleanPlayerName(playerName)}\n\n**Role:** ${userRole}\n**By:** <@${interaction.user.id}>.`
                     , COLOUR_VALUES.ADD
                 );
-                await interaction.reply({ content: `<@${user.id}> has been added to the roster as ${level}!`, ephemeral: true });
+                await interaction.reply({ content: `<@${user.id}> has been added to the roster as ${level}!`, flags: MessageFlags.Ephemeral });
 
                 // give player role
                 const roleError = await this.syncLevelRole(interaction.guild, user.id, null, level);
@@ -348,7 +348,7 @@ export default {
             try {
 
                 if (!user) {
-                    return interaction.reply({ content: "Please specify a user to remove from the roster.", ephemeral: true });
+                    return interaction.reply({ content: "Please specify a user to remove from the roster.", flags: MessageFlags.Ephemeral });
                 }
 
                 // Check if the user is in the roster
@@ -357,7 +357,7 @@ export default {
                 `, [user.id, guildId]);
         
                 if (rosterRows.length === 0) {
-                    return interaction.reply({ content: `<@${user.id}> is not in the roster!`, ephemeral: true });
+                    return interaction.reply({ content: `<@${user.id}> is not in the roster!`, flags: MessageFlags.Ephemeral });
                 }
 
                 // Remove the role from the user (skipped if they already left the server,
@@ -375,7 +375,7 @@ export default {
                     `**Roster Removal**\n\nA Player has been removed from the roster\n\n**Player:** ${cleanPlayerName(rosterRows[0].player_name) || user.username}\n**By:** <@${interaction.user.id}>.`, 
                     COLOUR_VALUES.REMOVE
                 );
-                await interaction.reply({ content: `<@${user.id}> has been removed from the roster.`, ephemeral: true });
+                await interaction.reply({ content: `<@${user.id}> has been removed from the roster.`, flags: MessageFlags.Ephemeral });
                 if (roleError) await safeReply(interaction, roleError);
 
                 // Update the roster embed
@@ -501,7 +501,7 @@ export default {
                     `**Roster Settings Updated**\n\nThe roster title has been updated\n\n**New title:** ${newTitle}\n**By:** <@${interaction.user.id}>.`, 
                     COLOUR_VALUES.EDIT
                 );
-                await interaction.reply({ content: `Roster title updated to **${newTitle}**!`, ephemeral: true });
+                await interaction.reply({ content: `Roster title updated to **${newTitle}**!`, flags: MessageFlags.Ephemeral });
             
                 // After updating the title, check if the roster channel exists and update the embed
                 const channelRows = await executeQuery(`
@@ -523,7 +523,7 @@ export default {
             const guild = interaction.guild;
             const guildId = guild.id;
 
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             const [settings] = await executeQuery(`
                 SELECT channel_id, message_id FROM roster_settings WHERE guild_id = ?
@@ -562,19 +562,19 @@ export default {
                 const newValue = interaction.options.getString('new_value');
 
                 if(!user) {
-                    return interaction.reply({ content: "Please specify a user to edit in the roster.", ephemeral: true });
+                    return interaction.reply({ content: "Please specify a user to edit in the roster.", flags: MessageFlags.Ephemeral });
                 }
 
                 if(!field) {
-                    return interaction.reply({ content: "Please specify a field to edit (name, role, flag).", ephemeral: true });
+                    return interaction.reply({ content: "Please specify a field to edit (name, role, flag).", flags: MessageFlags.Ephemeral });
                 }
 
                 if(!newValue) {
-                    return interaction.reply({ content: "Please provide a new value for the selected field.", ephemeral: true });
+                    return interaction.reply({ content: "Please provide a new value for the selected field.", flags: MessageFlags.Ephemeral });
                 }
 
                 if (field === 'member_level' && !['owner', 'leader', 'elite', 'member'].includes(newValue.toLowerCase())) {
-                    return interaction.reply({ content: "Invalid role! Please choose from Owner, Leader, Elite, or Member.", ephemeral: true });
+                    return interaction.reply({ content: "Invalid role! Please choose from Owner, Leader, Elite, or Member.", flags: MessageFlags.Ephemeral });
                 }
 
                 // Ensure the user exists in the roster
@@ -583,7 +583,7 @@ export default {
                 `, [user.id, guildId]);
 
                 if (!rosterRows.length) {
-                    return interaction.reply({ content: `This user is not in the roster.`, ephemeral: true });
+                    return interaction.reply({ content: `This user is not in the roster.`, flags: MessageFlags.Ephemeral });
                 }
 
                 const storedValue = field === 'member_level' ? newValue.toLowerCase() : newValue;
@@ -612,7 +612,7 @@ export default {
                 // Log the edit
                 return interaction.reply({
                     content: `Updated **${field}** for **${user.username}** to \`${storedValue}\`.${roleError ? `\n${roleError}` : ""}`,
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 });
             } catch (error) {
                 console.error(`Failed to edit roster for server: ${serverName} ID: ${guildId}:`, error);
@@ -689,10 +689,10 @@ export default {
                     `**Roster Settings Updated**\n\nThe Roster channel has been updated\n**Channel:** ${rosterChannel}\n**By:** <@${interaction.user.id}>.`, 
                     COLOUR_VALUES.ADD
                 );
-                return interaction.reply({ content: `Roster channel successfully set! The roster embed has been sent to <#${rosterChannel.id}>`, ephemeral: true });
+                return interaction.reply({ content: `Roster channel successfully set! The roster embed has been sent to <#${rosterChannel.id}>`, flags: MessageFlags.Ephemeral });
             } catch (error) {
                 console.error(`Failed to set roster channel for server: ${serverName} ID: ${guildId}:`, error);
-                return interaction.reply({ content: "An error occurred while setting up the roster channel.", ephemeral: true });
+                return interaction.reply({ content: "An error occurred while setting up the roster channel.", flags: MessageFlags.Ephemeral });
             }
         },
 
@@ -709,19 +709,19 @@ export default {
             try {
 
                 if(!ownerEmoji) {
-                    return interaction.reply({ content: "Please provide a valid emoji for the owner role.", ephemeral: true });
+                    return interaction.reply({ content: "Please provide a valid emoji for the owner role.", flags: MessageFlags.Ephemeral });
                 }
 
                 if(!leaderEmoji) {
-                    return interaction.reply({ content: "Please provide a valid emoji for the leader role.", ephemeral: true });
+                    return interaction.reply({ content: "Please provide a valid emoji for the leader role.", flags: MessageFlags.Ephemeral });
                 }
 
                 if(!eliteEmoji) {
-                    return interaction.reply({ content: "Please provide a valid emoji for the elite role.", ephemeral: true });
+                    return interaction.reply({ content: "Please provide a valid emoji for the elite role.", flags: MessageFlags.Ephemeral });
                 }
 
                 if(!memberEmoji) {
-                    return interaction.reply({ content: "Please provide a valid emoji for the member role.", ephemeral: true });
+                    return interaction.reply({ content: "Please provide a valid emoji for the member role.", flags: MessageFlags.Ephemeral });
                 }
 
                 // Check if roster settings exist
@@ -755,11 +755,11 @@ export default {
                     COLOUR_VALUES.EDIT);
                 return interaction.reply({
                     content: `Roster emojis updated:\nOwner: ${ownerEmoji}\nLeader: ${leaderEmoji}\nElite: ${eliteEmoji}\nMember: ${memberEmoji}`,
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
             });
             } catch (error) {
                 console.error(`Failed to set roster emojis for server: ${serverName} ID: ${guildId}:`, error);
-                return interaction.reply({ content: "An error occurred while setting the roster emojis.", ephemeral: true });
+                return interaction.reply({ content: "An error occurred while setting the roster emojis.", flags: MessageFlags.Ephemeral });
             }
         },
 
@@ -776,19 +776,19 @@ export default {
             try {
 
                 if(!ownerEmoji) {
-                    return interaction.reply({ content: "Please provide a valid role for the owner.", ephemeral: true });
+                    return interaction.reply({ content: "Please provide a valid role for the owner.", flags: MessageFlags.Ephemeral });
                 }
 
                 if(!leaderEmoji) {
-                    return interaction.reply({ content: "Please provide a valid role for the leader.", ephemeral: true });
+                    return interaction.reply({ content: "Please provide a valid role for the leader.", flags: MessageFlags.Ephemeral });
                 }
 
                 if(!eliteEmoji) {
-                    return interaction.reply({ content: "Please provide a valid role for elite member.", ephemeral: true });
+                    return interaction.reply({ content: "Please provide a valid role for elite member.", flags: MessageFlags.Ephemeral });
                 }
 
                 if(!memberEmoji) {
-                    return interaction.reply({ content: "Please provide a valid role for member.", ephemeral: true });
+                    return interaction.reply({ content: "Please provide a valid role for member.", flags: MessageFlags.Ephemeral });
                 }
 
                 // Check if roster settings exist
@@ -824,11 +824,11 @@ export default {
 
                 return interaction.reply({
                     content: `Roster roles updated:\nOwner: ${ownerEmoji}\nLeader: ${leaderEmoji}\nElite: ${eliteEmoji}\nMember: ${memberEmoji}`,
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 });
             } catch (error) {
                 console.error(`Failed to set roster roles for server: ${serverName} ID: ${guildId}:`, error);
-                return interaction.reply({ content: "An error occurred while setting the roster roles.", ephemeral: true });
+                return interaction.reply({ content: "An error occurred while setting the roster roles.", flags: MessageFlags.Ephemeral });
 
             }
         },
@@ -868,7 +868,7 @@ export default {
 
             try {
                 if (!interaction.deferred && !interaction.replied) {
-                    await interaction.deferReply({ ephemeral: true });
+                    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 }
 
                 const rosterRows = await executeQuery(

@@ -2,6 +2,7 @@ import { EmbedBuilder } from "discord.js";
 import { executeQuery } from "../database.js";
 import client from "../index.js";
 import COLOUR_VALUES from "../utils/colourMap.js";
+import { getPlayerNames } from "./playerNames.js";
 
 export async function sendLogEmbed(guildId, logMessage, embedColour = COLOUR_VALUES.DEFAULT) {
 
@@ -45,11 +46,21 @@ export async function sendLogEmbed(guildId, logMessage, embedColour = COLOUR_VAL
                 return;
             }
 
+            // 🔹 Show people by roster name (6pm prefix removed) instead of mentions,
+            // which appear as raw IDs for anyone whose client hasn't cached that user.
+            // Role (<@&id>) and channel (<#id>) mentions are left as they are.
+            const userMention = /<@!?(\d{15,25})>/g;
+            const mentionedIds = [...logMessage.matchAll(userMention)].map(match => match[1]);
+            if (guild && mentionedIds.length) {
+                const names = await getPlayerNames(guild, mentionedIds);
+                logMessage = logMessage.replace(userMention, (mention, id) => names.get(id) || mention);
+            }
+
             // 🔹 Create the embed
             const logEmbed = new EmbedBuilder()
                 .setTitle("Team Manager Log")
                 .setColor(embedColour)
-                .setDescription(logMessage)
+                .setDescription(logMessage.slice(0, 4096))
                 .setFooter({ text: `Logged at ${new Date().toLocaleString()}` });
 
             await logChannel.send({ embeds: [logEmbed] });

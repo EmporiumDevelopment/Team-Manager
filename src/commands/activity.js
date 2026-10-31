@@ -1,8 +1,9 @@
-import { EmbedBuilder, PermissionsBitField, SlashCommandBuilder } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, PermissionsBitField, SlashCommandBuilder } from "discord.js";
 import { executeQuery } from "../database.js";
 import { sendLogEmbed } from "../utils/logger.js";
 import COLOUR_VALUES from "../utils/colourMap.js";
-import { formatPlayerList } from "../utils/playerNames.js";
+import { formatPlayerList, getPlayerNames } from "../utils/playerNames.js";
+import { pageButtonId, paginateEntries, registerPaginator } from "../utils/pagination.js";
 
 export default {
     data: new SlashCommandBuilder()
@@ -99,12 +100,12 @@ export default {
 
         // Ensure command runs in a guild
         if (!interaction.guild) {
-            return interaction.reply({ content: "This command can only be used in a server!", ephemeral: true });
+            return interaction.reply({ content: "This command can only be used in a server!", flags: MessageFlags.Ephemeral });
         }
 
         // Check user permissions
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-            return interaction.reply({ content: "You need **Manage Server** permission to use this command!", ephemeral: true });
+            return interaction.reply({ content: "You need **Manage Server** permission to use this command!", flags: MessageFlags.Ephemeral });
         }
 
         const subcommand = interaction.options.getSubcommand();
@@ -130,11 +131,11 @@ export default {
         const guildId = interaction.guild.id;
         const channel = interaction.options.getChannel("channel");
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
             if (!channel) {
-                return interaction.editReply({ content: "Error: Could not find the specified channel.", ephemeral: true });
+                return interaction.editReply({ content: "Error: Could not find the specified channel." });
             }
 
             const activitySettings = await executeQuery(`
@@ -155,19 +156,18 @@ export default {
             `, [guildId, channel.id]);
 
             // Generate and send the initial leaderboard embed
-            const embed = await this.generateStatsEmbed(guildId);
-            const sentEmbed = await channel.send({ embeds: [embed] });
+            const sentEmbed = await channel.send(await this.generateStatsMessage(interaction.guild));
 
             // Store the message ID for future updates
             await executeQuery(`
                 UPDATE player_activity_settings SET message_id = ? WHERE guild_id = ?;
             `, [sentEmbed.id, guildId]);
 
-            await interaction.editReply({ content: `Player activity channel set to ${channel}.`, ephemeral: true });
+            await interaction.editReply({ content: `Player activity channel set to ${channel}.` });
 
         } catch (error) {
             console.error(`Failed to set player activity channel:`, error);
-            return interaction.editReply({ content: "An error occurred while setting up the player activity channel.", ephemeral: true });
+            return interaction.editReply({ content: "An error occurred while setting up the player activity channel." });
         }
     },
 
@@ -177,7 +177,7 @@ export default {
         const players = [];
         const result = interaction.options.getString("game-result");
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
             // 4 = max amount of player inputs
@@ -209,7 +209,7 @@ export default {
             }
 
             // send confirmation
-            await interaction.editReply({ content: `**${players.length} player(s)** activity recorded!\nMatch Result: **${result}**`, ephemeral: true });
+            await interaction.editReply({ content: `**${players.length} player(s)** activity recorded!\nMatch Result: **${result}**` });
 
             // send log
             const playerMentions = await formatPlayerList(interaction.guild, players.map(p => p.id));
@@ -223,7 +223,7 @@ export default {
             await this.updateEmbed(interaction);
         } catch (error) {
             console.error(`Error updating player activity:`, error);
-            return interaction.editReply({ content: "An error occurred while updating player activity.", ephemeral: true });
+            return interaction.editReply({ content: "An error occurred while updating player activity." });
         }
     },
 
@@ -234,11 +234,11 @@ export default {
         const result = interaction.options.getString("game-result");
 
         if (!user) {
-            return interaction.reply({ content: "Error: No player specified!", ephemeral: true });
+            return interaction.reply({ content: "Error: No player specified!", flags: MessageFlags.Ephemeral });
         }
 
         if(!result) {
-            return interaction.reply({ content: `You must specify the outcome of the game, (win/loss).`, ephemeral: true });
+            return interaction.reply({ content: `You must specify the outcome of the game, (win/loss).`, flags: MessageFlags.Ephemeral });
         }
 
         // check if user has data stored already
@@ -248,7 +248,7 @@ export default {
         
         // player data isnt stored
         if(!playerData || playerData.length === 0) {
-            return interaction.reply({ content: `There is no data stored for the user: ${user}, you can not remove points from them.`, ephemeral: true});
+            return interaction.reply({ content: `There is no data stored for the user: ${user}, you can not remove points from them.`, flags: MessageFlags.Ephemeral});
         }
 
         // stored player data
@@ -257,15 +257,15 @@ export default {
 
         // check if player has wins
         if(result === "win" && playerWins <= 0) {
-            return interaction.reply({ content: `Player ${user} has no wins, you can not remove a win from this player.`, ephemeral: true });
+            return interaction.reply({ content: `Player ${user} has no wins, you can not remove a win from this player.`, flags: MessageFlags.Ephemeral });
         }
 
         if(result === "loss" && playerGames <= 0) {
-            return interaction.reply({ content: `Player ${user} has no games, you can not remove a game from this player.`, ephemeral: true });
+            return interaction.reply({ content: `Player ${user} has no games, you can not remove a game from this player.`, flags: MessageFlags.Ephemeral });
         }
 
         // check if the user has valid games (removing a win check if they have a win)
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
 
@@ -278,7 +278,7 @@ export default {
             `, [result, result, guildId, user.id]);
 
             // send confirmation 
-            await interaction.editReply({ content: `**${user.username}**'s activity has been removed!\nMatch Result: **${result}**`, ephemeral: true });
+            await interaction.editReply({ content: `**${user.username}**'s activity has been removed!\nMatch Result: **${result}**` });
 
             // send log
             await sendLogEmbed(
@@ -291,7 +291,7 @@ export default {
             await this.updateEmbed(interaction);
         } catch (error) {
             console.error(`Error updating player activity:`, error);
-            return interaction.editReply({ content: "An error occurred while updating player activity.", ephemeral: true });
+            return interaction.editReply({ content: "An error occurred while updating player activity." });
         }
 
     },
@@ -304,7 +304,7 @@ export default {
         const user = interaction.options.getUser("user");
 
         if (!user) {
-            return interaction.reply({ content: "Error: No player specified!", ephemeral: true });
+            return interaction.reply({ content: "Error: No player specified!", flags: MessageFlags.Ephemeral });
         }
 
         const playerData = await executeQuery(`
@@ -312,10 +312,10 @@ export default {
             `, [guildId, user.id]);
 
         if(!playerData || playerData.length === 0) {
-            return interaction.reply({ content: `There is no data stored for the user: ${user}, you can not remove them from scrim activity.`, ephemeral: true});
+            return interaction.reply({ content: `There is no data stored for the user: ${user}, you can not remove them from scrim activity.`, flags: MessageFlags.Ephemeral});
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
 
@@ -325,7 +325,7 @@ export default {
                 `, [guildId, user.id]);
 
             // send confirmation
-            await interaction.editReply({ content: `Successfully removed <@${user.id}> from Scrim Activity.`, ephemeral: true });
+            await interaction.editReply({ content: `Successfully removed <@${user.id}> from Scrim Activity.` });
 
             // send logs
             await sendLogEmbed(
@@ -342,56 +342,23 @@ export default {
         }
     },
 
-    async generateStatsEmbed(guildId) {
+    // Public leaderboard message: the first page of rankings, plus a button that
+    // opens the full leaderboard as a private, paged view when there's more.
+    async generateStatsMessage(guild) {
+        const pages = await leaderboardPages(guild);
+        const embed = pages[0].setTimestamp();
 
-        const [settings] = await executeQuery(`
-            SELECT title FROM player_activity_settings WHERE guild_id = ?
-        `, [guildId]);
+        const components = pages.length > 1
+            ? [new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(pageButtonId("activity", 1))
+                    .setLabel(`Full leaderboard (${pages.length} pages)`)
+                    .setEmoji("📜")
+                    .setStyle(ButtonStyle.Secondary)
+            )]
+            : [];
 
-        const title = settings?.title ?? "Team Activity";
-
-        const players = await executeQuery(`
-            SELECT CAST(user_id as CHAR) AS user_id, games_played, wins, total_points 
-            FROM player_activity 
-            WHERE guild_id = ? AND games_played > 0 
-            ORDER BY total_points DESC;
-        `, [guildId]);
-
-        // If no player data exists, return a default embed
-        if (!players || players.length === 0) {
-            return new EmbedBuilder()
-                .setTitle(title)
-                .setColor("#FFD700")
-                .setDescription("No player activity recorded yet.\n\nYou can add a player using `/activity add`.");
-        }
-
-        const embed = new EmbedBuilder()
-            .setTitle(title)
-            .setColor("#FFD700");
-
-        let leaderboardText = "";
-        let shown = 0;
-
-        for (const player of players) {
-
-            if (!player || !player.user_id) continue;
-
-            const entry = `**#${shown + 1}** <@${player.user_id}>\n-# Games Played: ${player.games_played}\n-# Wins: ${player.wins}\n**Total Points:** ${player.total_points}\n\n`;
-
-            // Discord rejects descriptions over 4096 characters; stop before that
-            // (leaving room for the note below) instead of failing every update.
-            if (leaderboardText.length + entry.length > 4000) break;
-            leaderboardText += entry;
-            shown++;
-        }
-
-        if (shown < players.length) {
-            leaderboardText += `-# …and ${players.length - shown} more player(s)`;
-        }
-
-        embed.setDescription(leaderboardText);
-
-        return embed;
+        return { embeds: [embed], components };
     },
 
     async updateEmbed(interaction) {
@@ -410,20 +377,19 @@ export default {
         if (channelId && messageId) {
             const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
             if (!channel) {
-                return interaction.followUp({ content: "The activity channel no longer exists. Set it again with `/activity channel`.", ephemeral: true });
+                return interaction.followUp({ content: "The activity channel no longer exists. Set it again with `/activity channel`.", flags: MessageFlags.Ephemeral });
             }
 
             const message = await channel.messages.fetch(messageId).catch(() => null);
+            const view = await this.generateStatsMessage(guild);
 
             if (!message) {
                 const me = interaction.guild.members.me;
                 if (me && !channel.permissionsFor(me)?.has(PermissionsBitField.Flags.SendMessages)) {
-                    return interaction.followUp({ content: "I do not have permission to send messages in the activity channel.", ephemeral: true });
+                    return interaction.followUp({ content: "I do not have permission to send messages in the activity channel.", flags: MessageFlags.Ephemeral });
                 }
 
-
-                const newEmbed = await this.generateStatsEmbed(guildId);
-                const sentMessage = await channel.send({ embeds: [newEmbed] });
+                const sentMessage = await channel.send(view);
 
                 // Store the new message ID
                 await executeQuery(`
@@ -431,13 +397,55 @@ export default {
                 `, [sentMessage.id, guildId]);
 
             } else {
-                const updatedEmbed = await this.generateStatsEmbed(guildId);
-                updatedEmbed.setTimestamp();
-
-                await message.edit({ embeds: [updatedEmbed] }).catch(console.error);
+                await message.edit(view).catch(console.error);
             }
         }
     },
 
     development: false
 };
+
+const ACTIVITY_COLOUR = "#FFD700";
+const PLAYERS_PER_PAGE = 15;
+
+// Ranked leaderboard split into embeds of PLAYERS_PER_PAGE players. Players are
+// shown by roster name (6pm prefix removed) instead of mentions, which show as raw
+// IDs for viewers whose client hasn't cached that user.
+async function leaderboardPages(guild) {
+    const [settings] = await executeQuery(`
+        SELECT title FROM player_activity_settings WHERE guild_id = ?
+    `, [guild.id]);
+
+    const title = settings?.title ?? "Team Activity";
+
+    const players = await executeQuery(`
+        SELECT CAST(user_id as CHAR) AS user_id, games_played, wins, total_points
+        FROM player_activity
+        WHERE guild_id = ? AND games_played > 0
+        ORDER BY total_points DESC, wins DESC;
+    `, [guild.id]);
+
+    if (!players.length) {
+        return [new EmbedBuilder()
+            .setTitle(title)
+            .setColor(ACTIVITY_COLOUR)
+            .setDescription("No player activity recorded yet.\n\nYou can add a player using `/activity add`.")];
+    }
+
+    const names = await getPlayerNames(guild, players.map(p => p.user_id));
+
+    const entries = players.map((player, index) =>
+        `**#${index + 1}** ${names.get(player.user_id) || `<@${player.user_id}>`}\n-# Games Played: ${player.games_played}\n-# Wins: ${player.wins}\n**Total Points:** ${player.total_points}\n\n`
+    );
+
+    const pages = paginateEntries(entries, { maxPerPage: PLAYERS_PER_PAGE });
+    return pages.map((text, index) =>
+        new EmbedBuilder()
+            .setTitle(title)
+            .setColor(ACTIVITY_COLOUR)
+            .setDescription(text)
+            .setFooter({ text: `${players.length} player(s) · Page ${index + 1}/${pages.length}` })
+    );
+}
+
+registerPaginator("activity", leaderboardPages);

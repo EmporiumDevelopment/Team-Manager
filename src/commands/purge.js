@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, PermissionsBitField } from 'discord.js';
+import { MessageFlags, PermissionsBitField, SlashCommandBuilder } from 'discord.js';
 import { sendLogEmbed } from '../utils/logger.js';
 import COLOUR_VALUES from '../utils/colourMap.js';
 
@@ -23,7 +23,7 @@ export default {
 
         // Admin permission check
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-            return interaction.reply({ content: "You need **Manage Server** permission to use /purge!", ephemeral: true });
+            return interaction.reply({ content: "You need **Manage Server** permission to use /purge!", flags: MessageFlags.Ephemeral });
         }
 
         // Attempt bulk deletion
@@ -31,7 +31,7 @@ export default {
             await interaction.channel.bulkDelete(amount, true);
             await interaction.reply({ 
                 content: `Deleted **${amount}** messages!`, 
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
 
             await sendLogEmbed(
@@ -44,7 +44,7 @@ export default {
             console.error('Error purging messages:', error);
             await interaction.reply({ 
                 content: "Failed to purge messages. Make sure they are less than 14 days old.", 
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
         }
     },

@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, PermissionsBitField, SlashCommandBuilder } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags, PermissionsBitField, SlashCommandBuilder } from "discord.js";
 import { executeQuery, withTransaction } from "../database.js";
 import earnings from "./earnings.js";
 import { sendLogEmbed } from "../utils/logger.js";
@@ -16,15 +16,15 @@ export default {
 
         // Ensure command runs in a guild
         if (!interaction.guild) {
-            return interaction.reply({ content: "This command can only be used in a server!", ephemeral: true });
+            return interaction.reply({ content: "This command can only be used in a server!", flags: MessageFlags.Ephemeral });
         }
 
         // Check user permissions
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-            return interaction.reply({ content: "You need **Manage Server** permission to use this command!", ephemeral: true });
+            return interaction.reply({ content: "You need **Manage Server** permission to use this command!", flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const guildId = interaction.guild.id;
         const plan = await this.buildPayoutPlan(guildId);

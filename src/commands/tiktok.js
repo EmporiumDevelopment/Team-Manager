@@ -1,4 +1,4 @@
-import { EmbedBuilder, PermissionsBitField, SlashCommandBuilder } from "discord.js";
+import { EmbedBuilder, MessageFlags, PermissionsBitField, SlashCommandBuilder } from "discord.js";
 import { executeQuery } from "../database.js";
 import { sendLogEmbed } from "../utils/logger.js";
 import COLOUR_VALUES from "../utils/colourMap.js";
@@ -109,17 +109,17 @@ export default {
     async execute(interaction) {
 
         if (!interaction.guild) {
-            return interaction.reply({ content: "This command can only be used in a server!", ephemeral: true });
+            return interaction.reply({ content: "This command can only be used in a server!", flags: MessageFlags.Ephemeral });
         }
 
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-            return interaction.reply({ content: "You need **Manage Server** permission to manage TikTok announcements!", ephemeral: true });
+            return interaction.reply({ content: "You need **Manage Server** permission to manage TikTok announcements!", flags: MessageFlags.Ephemeral });
         }
 
         if (!isTikTokConfigured()) {
             return interaction.reply({
                 content: "TikTok isn't configured on the bot yet. The bot owner needs to set `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` and `TIKTOK_REDIRECT_URI` in the bot's `.env` and restart it.",
-                ephemeral: true,
+                flags: MessageFlags.Ephemeral,
             });
         }
 
@@ -128,7 +128,7 @@ export default {
         `, [interaction.guild.id]);
 
         const subcommand = interaction.options.getSubcommand();
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         switch (subcommand) {
             case "connect": return this.connect(interaction);

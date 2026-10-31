@@ -1,4 +1,4 @@
-import { AttachmentBuilder, EmbedBuilder, SlashCommandBuilder } from "discord.js";
+import { AttachmentBuilder, EmbedBuilder, MessageFlags, SlashCommandBuilder } from "discord.js";
 import path from 'path';
 import { fileURLToPath } from "url";
 
@@ -17,12 +17,12 @@ export default {
 
             // Check if the interaction is in a guild
             if (!interaction.guild) {
-                return interaction.reply({ content: "This command can only be used in a server!", ephemeral: true });
+                return interaction.reply({ content: "This command can only be used in a server!", flags: MessageFlags.Ephemeral });
             }
 
             // Check if the user has the required permissions
             if (!interaction.member.permissions.has("ManageGuild")) {
-                return interaction.reply({ content: "You need **Manage Server** permission to use this command!", ephemeral: true });
+                return interaction.reply({ content: "You need **Manage Server** permission to use this command!", flags: MessageFlags.Ephemeral });
             }
 
             const subcommand = interaction.options.getSubcommand();
@@ -65,7 +65,7 @@ export default {
 
             // send all embeds
 
-            return interaction.followUp({ content: "Tournament information has been sent!", ephemeral: true });
+            return interaction.followUp({ content: "Tournament information has been sent!", flags: MessageFlags.Ephemeral });
         },
 
         async generalEmbed() {

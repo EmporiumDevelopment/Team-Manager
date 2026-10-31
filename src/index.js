@@ -5,6 +5,7 @@ import CommandHandler from './handlers/commandHandler.js';
 import { handleMemberLeave } from './handlers/roster/playerHandler.js';
 import { scheduleScrims } from './utils/scrimScheduler.js';
 import { startTikTokWatcher } from './utils/tiktok/tiktokNotifier.js';
+import { isPageButton, handlePageButton } from './utils/pagination.js';
 import { sendLogEmbed } from './utils/logger.js';
 import { executeQuery } from './database.js';
 import "./utils/schedule/scheduleTasks.js"
@@ -103,6 +104,7 @@ client.on(Events.InteractionCreate, async interaction => {
         try {
             if (isScrimButton(interaction.customId)) return await handleScrimButton(interaction);
             if (isScheduleButton(interaction.customId)) return await handleScheduleButton(interaction);
+            if (isPageButton(interaction.customId)) return await handlePageButton(interaction);
         } catch (error) {
             console.error("Error handling button interaction:", error);
         }

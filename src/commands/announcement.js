@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, PermissionsBitField } from "discord.js";
+import { MessageFlags, PermissionsBitField, SlashCommandBuilder } from "discord.js";
 import { executeQuery } from "../database.js";
 
 export default {
@@ -38,7 +38,7 @@ export default {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             return interaction.reply({ 
                 content: "You need **Administrator** permission to use /announcement setup!", 
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral 
             });
         }
 
@@ -50,21 +50,21 @@ export default {
         if(!type) {
             return interaction.reply({ 
                 content: "Please select a valid type for the announcement channel.", 
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral 
             });
         }
 
         if (!channel) {
             return interaction.reply({ 
                 content: "Please select a valid text channel.", 
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral 
             });
         }
 
         if (!interaction.guild.channels.cache.has(channel.id)) {
             return interaction.reply({ 
                 content: "The selected channel does not exist in this server.", 
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral 
             });
         }
 
@@ -74,7 +74,7 @@ export default {
         if(!guildId) {
             return interaction.reply({ 
                 content: "Error: guildId is undefined.", 
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral 
             });
         }
 
@@ -93,13 +93,13 @@ export default {
 
             await interaction.reply({ 
                 content: confirmationMessage, 
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral 
             });
         } catch (error) {
             console.error("Error saving announcement channel to database:", error);
             return interaction.reply({ 
                 content: "Failed to save announcement channel to the database.", 
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral 
             });
         }
     },

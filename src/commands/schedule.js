@@ -1,4 +1,4 @@
-import { EmbedBuilder, SlashCommandBuilder } from "discord.js";
+import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from "discord.js";
 import { executeQuery } from "../database.js";
 import { sendLogEmbed } from "../utils/logger.js";
 import { DateTime } from "luxon";
@@ -258,7 +258,7 @@ export default {
 
         // Permission check
         if (!interaction.member.permissions.has('ManageGuild')) {
-            return interaction.reply({ content: 'You do not have permission to manage the guild settings.', ephemeral: true });
+            return interaction.reply({ content: 'You do not have permission to manage the guild settings.', flags: MessageFlags.Ephemeral });
         }
 
         // Check if schedule settings exist for the guild
@@ -341,7 +341,7 @@ export default {
         if(subcommand === "announce") {
 
             const team = interaction.options.getString("team-type");
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             const announced = await announceTodaysEvents(guild, guild.client, team);
             await interaction.editReply({
                 content: announced > 0
@@ -362,31 +362,31 @@ export default {
 
         // Validate user input
         if(!type) {
-            return interaction.reply({ content: 'You must specify a type for the channel.', ephemeral: true });
+            return interaction.reply({ content: 'You must specify a type for the channel.', flags: MessageFlags.Ephemeral });
         }
 
         // valid types
         const validTypes = ['schedule', 'announcements'];
         if(!validTypes.includes(type)) {
-            return interaction.reply({ content: 'Invalid type specified. Valid types are: schedule, announcements.', ephemeral: true });
+            return interaction.reply({ content: 'Invalid type specified. Valid types are: schedule, announcements.', flags: MessageFlags.Ephemeral });
         }
 
         if(!team) {
-            return interaction.reply({ content: 'You must specify a team type.', ephemeral: true });
+            return interaction.reply({ content: 'You must specify a team type.', flags: MessageFlags.Ephemeral });
         }
 
         if(!channel) {
-            return interaction.reply({ content: 'You must specify a channel to set.', ephemeral: true });
+            return interaction.reply({ content: 'You must specify a channel to set.', flags: MessageFlags.Ephemeral });
         }
 
         // Check if the channel exists in the guild
         const fetchedChannel = await interaction.guild.channels.fetch(channel.id).catch(() => null);
         if(!fetchedChannel) {
-            return interaction.reply({ content: 'The specified channel does not exist in this guild.', ephemeral: true });
+            return interaction.reply({ content: 'The specified channel does not exist in this guild.', flags: MessageFlags.Ephemeral });
         }
 
         // Defer the reply to allow time for processing
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         // Update the channel in the database
         try {
@@ -434,7 +434,7 @@ export default {
 
             // Send confirmation message
             console.log(`Updated schedule channel for guild: ${guildId}, type: ${type}, channel: ${channel.id}`);
-            interaction.editReply({ content: `Successfully updated the ${type} channel to <#${channel.id}>.`, ephemeral: true });
+            interaction.editReply({ content: `Successfully updated the ${type} channel to <#${channel.id}>.` });
 
             // Send discord log message
             await sendLogEmbed(
@@ -446,7 +446,7 @@ export default {
             return;
         } catch (error) {
             console.error(`There was an error updating the schedule channel for guild: ${guildId}`, error);
-            return interaction.editReply({ content: `There was an error updating the schedule channel.`, ephemeral: true });
+            return interaction.editReply({ content: `There was an error updating the schedule channel.` });
         }
     },
 
@@ -460,20 +460,20 @@ export default {
 
         // Validate user input
         if(!role) {
-            return interaction.reply({ content: 'You must specify a role to set.', ephemeral: true });
+            return interaction.reply({ content: 'You must specify a role to set.', flags: MessageFlags.Ephemeral });
         }
 
         if(!team) {
-            return interaction.reply({ content: 'You must specify a team type.', ephemeral: true });
+            return interaction.reply({ content: 'You must specify a team type.', flags: MessageFlags.Ephemeral });
         }
 
         // Check if the role exists in the guild
         if(!interaction.guild.roles.cache.has(role.id)) {
-            return interaction.reply({ content: 'The specified role does not exist in this guild.', ephemeral: true });
+            return interaction.reply({ content: 'The specified role does not exist in this guild.', flags: MessageFlags.Ephemeral });
         }
 
         // Defer the reply to allow time for processing
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         // Update the role in the database
         try {
@@ -485,7 +485,7 @@ export default {
 
             // Send confirmation message
             console.log(`Updated Schedule Announcements mention role for guild: ${guildId}, role: ${role.id}`);
-            interaction.editReply({ content: `Successfully updated the Schedule Announcements mention role to ${role}.`, ephemeral: true });
+            interaction.editReply({ content: `Successfully updated the Schedule Announcements mention role to ${role}.` });
 
             // Send discord log message
             await sendLogEmbed(
@@ -496,7 +496,7 @@ export default {
             return;
         } catch (error) {
             console.error(`There was an error updating the schedule role for guild: ${guildId}`, error);
-            return interaction.editReply({ content: `There was an error updating the schedule role.`, ephemeral: true });
+            return interaction.editReply({ content: `There was an error updating the schedule role.` });
         }
     },
 
@@ -510,7 +510,7 @@ export default {
 
         // Validate user input
         if(!confirmationEmoji && !declineEmoji) {
-            return interaction.reply({ content: `No emojis specified, using default emojis`, ephemeral: true });
+            return interaction.reply({ content: `No emojis specified, using default emojis`, flags: MessageFlags.Ephemeral });
         }
 
         // Accept a custom emoji (static or animated, e.g. <:name:id> / <a:name:id>) or a
@@ -520,18 +520,18 @@ export default {
             /^<a?:\w+:\d+>$/.test(value) || /^\p{Extended_Pictographic}(️|‍\p{Extended_Pictographic})*$/u.test(value);
 
         if(confirmationEmoji && !isValidEmoji(confirmationEmoji)) {
-            return interaction.reply({ content: `Invalid confirmation emoji. Use a standard emoji (✅) or a server emoji.`, ephemeral: true });
+            return interaction.reply({ content: `Invalid confirmation emoji. Use a standard emoji (✅) or a server emoji.`, flags: MessageFlags.Ephemeral });
         }
 
         if(declineEmoji && !isValidEmoji(declineEmoji)) {
-            return interaction.reply({ content: `Invalid decline emoji. Use a standard emoji (❌) or a server emoji.`, ephemeral: true });
+            return interaction.reply({ content: `Invalid decline emoji. Use a standard emoji (❌) or a server emoji.`, flags: MessageFlags.Ephemeral });
         }
 
         const selectedTeam = interaction.options.getString("team-type");
         const teams = selectedTeam ? [selectedTeam] : ["mixed", "female", "clan"];
 
         // Defer the reply to allow time for processing
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         // Emojis live per team. Only overwrite a column when a new value was actually
         // provided (keep the existing value otherwise).
@@ -548,7 +548,7 @@ export default {
 
             // Send confirmation message
             console.log(`Updated Schedule Emojis for guild: ${guildId}, confirmation: ${confirmationEmoji}, decline: ${declineEmoji}`);
-            interaction.editReply({ content: `Successfully updated the Schedule Emojis. Confirmation: ${confirmationEmoji}, Decline: ${declineEmoji}.`, ephemeral: true });
+            interaction.editReply({ content: `Successfully updated the Schedule Emojis. Confirmation: ${confirmationEmoji}, Decline: ${declineEmoji}.` });
 
             // Send discord log message
             await sendLogEmbed(
@@ -559,7 +559,7 @@ export default {
             return;
         } catch (error) {
             console.error(`There was an error updating the schedule emojis for guild: ${guildId}`, error);
-            return interaction.editReply({ content: `There was an error updating the schedule emojis.`, ephemeral: true });
+            return interaction.editReply({ content: `There was an error updating the schedule emojis.` });
         }
     },
 
@@ -576,22 +576,22 @@ export default {
 
         // 🔹 Validate user input
         if(!team) {
-            return interaction.reply({ content: "You must specify a team type.", ephemeral: true });
+            return interaction.reply({ content: "You must specify a team type.", flags: MessageFlags.Ephemeral });
         }
 
         if (!eventName) {
-            return interaction.reply({ content: "You need to enter an event name.", ephemeral: true });
+            return interaction.reply({ content: "You need to enter an event name.", flags: MessageFlags.Ephemeral });
         }
 
         if (!eventDate || !/^(\d{2})\/(\d{2})\/(\d{2})$/.test(eventDate)) {
-            return interaction.reply({ content: "Invalid date format. Use DD/MM/YY (Example: 01/01/25)", ephemeral: true });
+            return interaction.reply({ content: "Invalid date format. Use DD/MM/YY (Example: 01/01/25)", flags: MessageFlags.Ephemeral });
         }
 
         if (!eventTime || !/^(\d{2}):(\d{2})$/.test(eventTime)) {
-            return interaction.reply({ content: "Invalid time format. Use HH:mm (Example: 20:00)", ephemeral: true });
+            return interaction.reply({ content: "Invalid time format. Use HH:mm (Example: 20:00)", flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         // 🔹 Convert user input date to MySQL format (`YYYY-MM-DD`)
         const [day, month, year] = eventDate.split("/");
@@ -621,7 +621,7 @@ export default {
         await this.updateScheduleEmbed(interaction, team);
 
         // send confirmation and logs
-        await interaction.editReply({ content: `Event **${eventName}** added for **${eventDate} at ${eventTime}**. Schedule updated.`, ephemeral: true });
+        await interaction.editReply({ content: `Event **${eventName}** added for **${eventDate} at ${eventTime}**. Schedule updated.` });
         await sendLogEmbed(
             guildId, 
             `**Schedule Event Added**\n\nAn event has been added to the ${team} schedule.\n\n**Event Name:** ${eventName}\n**Date:** ${eventDate}\n**Time:** ${eventTime}\n**By:** <@${creator}>`, 
@@ -639,14 +639,14 @@ export default {
 
         // validate user input
         if(!team) {
-            return interaction.reply({ content: "You must specify a team type.", ephemeral: true });
+            return interaction.reply({ content: "You must specify a team type.", flags: MessageFlags.Ephemeral });
         }
 
         if(!eventId) {
-            return interaction.reply({ content: "You must provide a valid event ID, they are on the left side of each event in the schedule list.", ephemeral: true});
+            return interaction.reply({ content: "You must provide a valid event ID, they are on the left side of each event in the schedule list.", flags: MessageFlags.Ephemeral});
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         // The number shown in the schedule is the event's position, not its row ID.
         const event = await resolveEventByPosition(guildId, team, eventId);
@@ -673,7 +673,7 @@ export default {
             );
         } catch(error) {
             console.error(`Error removing event ${eventId} from schedule for guild: ${guildId}`, error);
-            await interaction.followUp({ content: "An error occurred while removing the event. Please report this issue.", ephemeral: true });
+            await interaction.followUp({ content: "An error occurred while removing the event. Please report this issue.", flags: MessageFlags.Ephemeral });
         }
     },
 
@@ -684,7 +684,7 @@ export default {
 
         if (!guildId) {
             console.log("Invalid Guild ID, aborting event edit");
-            return interaction.reply({ content: "An error occurred while editing the event. Please report this.", ephemeral: true });
+            return interaction.reply({ content: "An error occurred while editing the event. Please report this.", flags: MessageFlags.Ephemeral });
         }
 
         const team = interaction.options.getString("team-type");
@@ -694,28 +694,28 @@ export default {
 
         // 🔹 Validate user input
         if(!team) {
-            return interaction.reply({ content: "You must specify a team type.", ephemeral: true });
+            return interaction.reply({ content: "You must specify a team type.", flags: MessageFlags.Ephemeral });
         }
 
         if (!eventId) {
-            return interaction.reply({ content: "You must provide the ID of the event you want to edit. (Displayed on the left side of each event in the schedule)", ephemeral: true });
+            return interaction.reply({ content: "You must provide the ID of the event you want to edit. (Displayed on the left side of each event in the schedule)", flags: MessageFlags.Ephemeral });
         }
 
         if (!type) {
-            return interaction.reply({ content: "You must select which element of the event you want to edit. Options: `name`, `date`, `time`.", ephemeral: true });
+            return interaction.reply({ content: "You must select which element of the event you want to edit. Options: `name`, `date`, `time`.", flags: MessageFlags.Ephemeral });
         }
 
         if (!input) {
-            return interaction.reply({ content: "You must enter a new value to replace the current value.", ephemeral: true });
+            return interaction.reply({ content: "You must enter a new value to replace the current value.", flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         // 🔹 Normalize type input to prevent validation issues
         type = type.trim().toLowerCase();
 
         if (!["name", "date", "time"].includes(type)) {
-            return interaction.editReply({ content: "Invalid edit type. Use `name`, `date`, or `time`.", ephemeral: true });
+            return interaction.editReply({ content: "Invalid edit type. Use `name`, `date`, or `time`." });
         }
 
         // 🔹 Fetch the current event (the number shown in the schedule is its position)
@@ -769,10 +769,10 @@ export default {
             );
 
             // 🔹 Send confirmation message
-            await interaction.editReply({ content: `Event **${eventDetails[0].event_name}** updated: **${type}** changed to **${input}**!`, ephemeral: true });
+            await interaction.editReply({ content: `Event **${eventDetails[0].event_name}** updated: **${type}** changed to **${input}**!` });
         } catch (error) {
             console.error(`Error editing event ${eventId} from schedule for guild: ${guildId}`, error);
-            await interaction.followUp({ content: "An error occurred while editing the event. Please report this issue.", ephemeral: true });
+            await interaction.followUp({ content: "An error occurred while editing the event. Please report this issue.", flags: MessageFlags.Ephemeral });
         }
     },
 
@@ -798,7 +798,7 @@ export default {
             return interaction.reply("The title for the schedule can not be empty.")
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
 
@@ -814,7 +814,7 @@ export default {
 
             // Send confirmation and log message
             console.log(`Updated schedule title to: ${title} in guild: ${guildId}`);
-            await interaction.editReply({ content: `Successfully updated the ${team} schedule title to ${title}.`, ephemeral: true });
+            await interaction.editReply({ content: `Successfully updated the ${team} schedule title to ${title}.` });
             return sendLogEmbed(
                 guildId, 
                 `**Schedule settings updated**\n\nThe Title of the ${team} schedule has been updated.\n\n**New Title:** ${title}\n**By:** <@${interaction.user.id}>`, 
@@ -822,7 +822,7 @@ export default {
             );
         } catch (error) {
             console.error(`There was an error updating the schedule channel for guild: ${guildId}`, error);
-            return interaction.editReply({ content: `There was an error updating the ${team} schedule channel.`, ephemeral: true });
+            return interaction.editReply({ content: `There was an error updating the ${team} schedule channel.` });
         }
     },
 
@@ -842,26 +842,26 @@ export default {
 
         // validate user input
         if(!team) {
-            return interaction.reply({ content: "You must specify a team type for the schedule status.", ephemeral: true });
+            return interaction.reply({ content: "You must specify a team type for the schedule status.", flags: MessageFlags.Ephemeral });
         }
 
         if(!id) {
-            return interaction.reply({ content: "You need to specify the ID of the event you would like to change the status of. (ID of each event is displayed in the schedule)", ephemeral: true });
+            return interaction.reply({ content: "You need to specify the ID of the event you would like to change the status of. (ID of each event is displayed in the schedule)", flags: MessageFlags.Ephemeral });
         }
 
         const status = interaction.options.getString("status");
 
         if(!status) {
-            return interaction.reply({ content: "You need to set the new status of the event. (active, completed or cancelled).", ephemeral: true });
+            return interaction.reply({ content: "You need to set the new status of the event. (active, completed or cancelled).", flags: MessageFlags.Ephemeral });
         }
 
         // check status is a valid choice
         const allowedStatuses = ["active", "completed", "cancelled"];
         if(!allowedStatuses.includes(status)) {
-            return interaction.reply({ content: `Invalid status: ${status}, please choose an option from the list. (active, completed or cancelled)`, ephemeral: true });
+            return interaction.reply({ content: `Invalid status: ${status}, please choose an option from the list. (active, completed or cancelled)`, flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
 
@@ -908,7 +908,7 @@ export default {
             await this.updateScheduleEmbed(interaction, team);
 
         } catch (error) {
-            interaction.editReply({ content: `Something went wrong while setting the status of Event ID: ${id} with new status: ${status}, please report this`, ephemeral: true });
+            interaction.editReply({ content: `Something went wrong while setting the status of Event ID: ${id} with new status: ${status}, please report this` });
             console.log(`Error occured while setting new status for event id: ${id} with new status ${status} in guild: ${guildId}`, error);
         }
     },
@@ -918,7 +918,7 @@ export default {
         if(!team) return;
         const updated = await refreshScheduleEmbed(interaction.guild, team);
         if (!updated) {
-            await interaction.followUp({ content: `⚠ No ${team} schedule embed found. Set it up using \`/schedule channel\`.`, ephemeral: true });
+            await interaction.followUp({ content: `⚠ No ${team} schedule embed found. Set it up using \`/schedule channel\`.`, flags: MessageFlags.Ephemeral });
         }
     },
 

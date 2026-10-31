@@ -116,7 +116,7 @@ export default {
         // sub command permission check
         if(["channel", "add", "remove", "edit", "title"].includes(subcommand)){
             if(!interaction.member.permissions.has("ManageGuild")) {
-                return interaction.reply({ content: "You need **Manage Server** permission to modify the roster!", ephemeral: true });
+                return interaction.reply({ content: "You need **Manage Server** permission to modify the roster!", flags: MessageFlags.Ephemeral });
             }
         }
 
@@ -141,7 +141,7 @@ export default {
 
         // check if the channel is set
         if(!socialMediaSettings[0].channel_id || socialMediaSettings[0].channel_id === null) {
-            return interaction.reply({ content: "Social media channel is not set. Please set it using `/socials channel` command.", ephemeral: true });
+            return interaction.reply({ content: "Social media channel is not set. Please set it using `/socials channel` command.", flags: MessageFlags.Ephemeral });
         }
 
         if(subcommand === "add") {
@@ -168,7 +168,7 @@ export default {
             return await interaction.reply({ content: "Please provide a valid channel.", flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
 
@@ -201,10 +201,10 @@ export default {
             }
 
             // confirm to the user
-            return await interaction.editReply({ content: `Social media channel has been set to ${channel}.`, flags: MessageFlags.Ephemeral });
+            return await interaction.editReply({ content: `Social media channel has been set to ${channel}.` });
         } catch (error) {
             console.error("Error setting social media channel:", error);
-            return await interaction.editReply({ content: "There was an error setting the social media channel. Please try again later.", flags: MessageFlags.Ephemeral });
+            return await interaction.editReply({ content: "There was an error setting the social media channel. Please try again later." });
         }
     },
 
@@ -237,10 +237,10 @@ export default {
         const emojiRegex = /^<a?:\w+:\d+>$/;
 
         if (!emojiRegex.test(emoji)) {
-            return interaction.reply({ content: "That doesn't look like a valid custom emoji format.", ephemeral: true });
+            return interaction.reply({ content: "That doesn't look like a valid custom emoji format.", flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
 
@@ -259,14 +259,14 @@ export default {
             );
 
             // confirm to the user
-            await interaction.editReply({ content: `The ${platform} platform has been added with URL: ${url}`, flags: MessageFlags.Ephemeral });
+            await interaction.editReply({ content: `The ${platform} platform has been added with URL: ${url}` });
 
             // update the social media embed in the channel
             await this.updateEmbed(interaction);
 
         } catch (error) {
             console.error("Error adding social media platform:", error);
-            return await interaction.editReply({ content: "There was an error adding the social media platform. Please try again later.", flags: MessageFlags.Ephemeral });
+            return await interaction.editReply({ content: "There was an error adding the social media platform. Please try again later." });
         }
     },
 
@@ -280,7 +280,7 @@ export default {
             return await interaction.reply({ content: "Please provide a valid platform.", flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
 
@@ -290,7 +290,7 @@ export default {
             `, [guildId]);
 
             if(existingPlatform.length === 0) {
-                return await interaction.editReply({ content: `The ${platform} platform does not exist or is not set.`, flags: MessageFlags.Ephemeral });
+                return await interaction.editReply({ content: `The ${platform} platform does not exist or is not set.` });
             }
 
             // remove the platform from the database by setting its fields to NULL
@@ -308,14 +308,14 @@ export default {
             );
 
             // confirm to the user
-            await interaction.editReply({ content: `The ${platform} platform has been removed.`, flags: MessageFlags.Ephemeral });
+            await interaction.editReply({ content: `The ${platform} platform has been removed.` });
 
             // update the social media embed in the channel
             await this.updateEmbed(interaction);
 
         } catch (error) {
             console.error("Error removing social media platform:", error);
-            return await interaction.editReply({ content: "There was an error removing the social media platform. Please try again later.", flags: MessageFlags.Ephemeral });
+            return await interaction.editReply({ content: "There was an error removing the social media platform. Please try again later." });
         }
     },
 
@@ -339,7 +339,7 @@ export default {
             return await interaction.reply({ content: "Please provide a valid value.", flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
 
@@ -349,7 +349,7 @@ export default {
             `, [guildId]);
 
             if(existingPlatform.length === 0) {
-                return await interaction.editReply({ content: `The ${platform} platform does not exist or is not set.`, flags: MessageFlags.Ephemeral });
+                return await interaction.editReply({ content: `The ${platform} platform does not exist or is not set.` });
             }
 
             // determine the column to update based on the property
@@ -361,7 +361,7 @@ export default {
             } else if(property === "emoji") {
                 column = `${platform}_emoji`;
             } else {
-                return await interaction.editReply({ content: "Invalid property. Please choose from URL, display name, or emoji.", flags: MessageFlags.Ephemeral });
+                return await interaction.editReply({ content: "Invalid property. Please choose from URL, display name, or emoji." });
             }
 
             // update the platform in the database
@@ -379,13 +379,13 @@ export default {
             );
 
             // confirm to the user
-            await interaction.editReply({ content: `The ${platform} platform has been updated.`, flags: MessageFlags.Ephemeral });
+            await interaction.editReply({ content: `The ${platform} platform has been updated.` });
 
             // update the social media embed in the channel
             await this.updateEmbed(interaction);
         } catch (error) {
             console.error("Error editing social media platform:", error);
-            return await interaction.editReply({ content: "There was an error editing the social media platform. Please try again later.", flags: MessageFlags.Ephemeral });
+            return await interaction.editReply({ content: "There was an error editing the social media platform. Please try again later." });
         }
     },
 
@@ -484,7 +484,7 @@ export default {
             return await interaction.reply({ content: "Please provide a valid title.", flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
             // update the title in the database
@@ -502,14 +502,14 @@ export default {
             );
 
             // confirm to the user
-            await interaction.editReply({ content: `The social media embed title has been updated to: ${title}`, flags: MessageFlags.Ephemeral });
+            await interaction.editReply({ content: `The social media embed title has been updated to: ${title}` });
 
             // update the social media embed in the channel
             await this.updateEmbed(interaction);
 
         } catch (error) {
             console.error("Error editing social media embed title:", error);
-            return await interaction.editReply({ content: "There was an error editing the social media embed title. Please try again later.", flags: MessageFlags.Ephemeral });
+            return await interaction.editReply({ content: "There was an error editing the social media embed title. Please try again later." });
         }
 
     },
