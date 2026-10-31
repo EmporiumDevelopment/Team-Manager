@@ -352,6 +352,42 @@ async function initializeDatabase() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
 
+        // Scrim slots that already had their one-off "full squad" alert posted.
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS scrim_slot_alerts (
+                message_id VARCHAR(255) NOT NULL,
+                slot VARCHAR(10) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (message_id, slot)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+
+        // Activity seasons: /activity reset archives the leaderboard here before
+        // clearing player_activity.
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS player_activity_seasons (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                guild_id VARCHAR(255) NOT NULL,
+                name VARCHAR(100) NOT NULL,
+                started_at DATETIME DEFAULT NULL,
+                ended_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                ended_by VARCHAR(30) DEFAULT NULL,
+                INDEX idx_seasons_guild (guild_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        `);
+
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS player_activity_archive (
+                season_id INT NOT NULL,
+                guild_id VARCHAR(255) NOT NULL,
+                user_id VARCHAR(30) NOT NULL,
+                games_played INT DEFAULT 0,
+                wins INT DEFAULT 0,
+                total_points INT DEFAULT 0,
+                PRIMARY KEY (season_id, user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+
         // TikTok upload notifications (one connected TikTok account per guild).
         // *_expires_at / last_checked_at are JS millisecond timestamps;
         // last_video_time is the TikTok create_time (unix seconds) of the newest

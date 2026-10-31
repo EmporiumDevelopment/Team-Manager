@@ -1,9 +1,9 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, PermissionsBitField, SlashCommandBuilder } from "discord.js";
-import { executeQuery } from "../database.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, EmbedBuilder, MessageFlags, PermissionsBitField, SlashCommandBuilder } from "discord.js";
+import { executeQuery, withTransaction } from "../database.js";
 import { sendLogEmbed } from "../utils/logger.js";
 import COLOUR_VALUES from "../utils/colourMap.js";
 import { formatPlayerList, getPlayerNames } from "../utils/playerNames.js";
-import { pageButtonId, paginateEntries, registerPaginator } from "../utils/pagination.js";
+import { pageButtonId, paginateEntries, registerPaginator, showPagedView } from "../utils/pagination.js";
 
 export default {
     data: new SlashCommandBuilder()
@@ -94,6 +94,32 @@ export default {
                 .setDescription("Select a user to remove from Scrim Activity.")
                 .setRequired(true)
             )
+        )
+        // reset (end the season)
+        .addSubcommand(subcommand =>
+            subcommand
+            .setName("reset")
+            .setDescription("End the current season: archive the leaderboard and start fresh.")
+            .addStringOption(option =>
+                option
+                .setName("name")
+                .setDescription("Name for the season being archived (default: Season N)")
+                .setRequired(false)
+                .setMaxLength(100)
+            )
+        )
+        // seasons (view archives)
+        .addSubcommand(subcommand =>
+            subcommand
+            .setName("seasons")
+            .setDescription("List past seasons, or view one season's full leaderboard.")
+            .addIntegerOption(option =>
+                option
+                .setName("season")
+                .setDescription("Season number to view (from the list)")
+                .setRequired(false)
+                .setMinValue(1)
+            )
         ),
 
     async execute(interaction) {
@@ -124,6 +150,14 @@ export default {
 
         if(subcommand === "delete") {
             await this.deleteUser(interaction);
+        }
+
+        if(subcommand === "reset") {
+            await this.resetSeason(interaction);
+        }
+
+        if(subcommand === "seasons") {
+            await this.showSeasons(interaction);
         }
     },
 
@@ -342,6 +376,133 @@ export default {
         }
     },
 
+    // Archives the current leaderboard as a named season and clears it, after the
+    // admin confirms with a button.
+    async resetSeason(interaction) {
+        const guild = interaction.guild;
+        const guildId = guild.id;
+
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+        const [{ players }] = await executeQuery(
+            `SELECT COUNT(*) AS players FROM player_activity WHERE guild_id = ? AND games_played > 0`,
+            [guildId]
+        );
+        if (!Number(players)) {
+            return interaction.editReply({ content: "There's no activity recorded yet, so there's nothing to archive." });
+        }
+
+        const [{ seasonCount }] = await executeQuery(
+            `SELECT COUNT(*) AS seasonCount FROM player_activity_seasons WHERE guild_id = ?`,
+            [guildId]
+        );
+        const name = interaction.options.getString("name")?.trim() || `Season ${Number(seasonCount) + 1}`;
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId("activity_reset_confirm").setLabel("Archive & reset").setStyle(ButtonStyle.Danger),
+            new ButtonBuilder().setCustomId("activity_reset_cancel").setLabel("Cancel").setStyle(ButtonStyle.Secondary),
+        );
+
+        const prompt = await interaction.editReply({
+            content: `This archives the current leaderboard (**${players}** player(s)) as **${name}** and resets everyone to zero.\nPast seasons stay viewable with \`/activity seasons\`.`,
+            components: [row],
+        });
+
+        let click;
+        try {
+            click = await prompt.awaitMessageComponent({
+                componentType: ComponentType.Button,
+                filter: i => i.user.id === interaction.user.id,
+                time: 60_000,
+            });
+        } catch {
+            return interaction.editReply({ content: "Reset timed out — nothing was changed.", components: [] });
+        }
+
+        if (click.customId !== "activity_reset_confirm") {
+            return click.update({ content: "Reset cancelled — nothing was changed.", components: [] });
+        }
+        await click.update({ content: "Archiving...", components: [] });
+
+        // All-or-nothing: the leaderboard is only cleared if the archive was written.
+        const seasonId = await withTransaction(async (conn) => {
+            const [[previous]] = await conn.execute(
+                `SELECT MAX(ended_at) AS lastEnded FROM player_activity_seasons WHERE guild_id = ?`,
+                [guildId]
+            );
+            const [season] = await conn.execute(
+                `INSERT INTO player_activity_seasons (guild_id, name, started_at, ended_by) VALUES (?, ?, ?, ?)`,
+                [guildId, name, previous?.lastEnded || null, interaction.user.id]
+            );
+            await conn.execute(`
+                INSERT INTO player_activity_archive (season_id, guild_id, user_id, games_played, wins, total_points)
+                SELECT ?, guild_id, user_id, games_played, wins, total_points
+                FROM player_activity WHERE guild_id = ? AND games_played > 0
+            `, [season.insertId, guildId]);
+            await conn.execute(`DELETE FROM player_activity WHERE guild_id = ?`, [guildId]);
+            return season.insertId;
+        });
+
+        await this.updateEmbed(interaction);
+        await interaction.editReply({ content: `Archived as **${name}** (season #${seasonId}) and reset the leaderboard. View it any time with \`/activity seasons season:${seasonId}\`.` });
+
+        await sendLogEmbed(
+            guildId,
+            `**Activity Season Ended**\n\nThe leaderboard was archived as **${name}** (${players} player(s)) and reset.\n**By:** <@${interaction.user.id}>`,
+            COLOUR_VALUES.WARNING
+        );
+    },
+
+    // Without a season: list past seasons with their winners. With one: open that
+    // season's full leaderboard as a private, paged view.
+    async showSeasons(interaction) {
+        const guild = interaction.guild;
+        const seasonId = interaction.options.getInteger("season");
+
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+        if (seasonId) {
+            const [season] = await executeQuery(
+                `SELECT id FROM player_activity_seasons WHERE id = ? AND guild_id = ?`,
+                [seasonId, guild.id]
+            );
+            if (!season) {
+                return interaction.editReply({ content: `There's no season #${seasonId} in this server. Run \`/activity seasons\` to see the list.` });
+            }
+            return showPagedView(interaction, `season-${seasonId}`);
+        }
+
+        const seasons = await executeQuery(`
+            SELECT s.id, s.name, s.ended_at,
+                (SELECT COUNT(*) FROM player_activity_archive a WHERE a.season_id = s.id) AS players,
+                (SELECT CAST(a.user_id AS CHAR) FROM player_activity_archive a WHERE a.season_id = s.id
+                    ORDER BY a.total_points DESC, a.wins DESC LIMIT 1) AS winner_id,
+                (SELECT MAX(a.total_points) FROM player_activity_archive a WHERE a.season_id = s.id) AS winner_points
+            FROM player_activity_seasons s
+            WHERE s.guild_id = ?
+            ORDER BY s.id DESC
+        `, [guild.id]);
+
+        if (!seasons.length) {
+            return interaction.editReply({ content: "No past seasons yet. End the current one with `/activity reset`." });
+        }
+
+        const names = await getPlayerNames(guild, seasons.map(s => s.winner_id).filter(Boolean));
+        const lines = seasons.map(s => {
+            const ended = Math.floor(new Date(s.ended_at).getTime() / 1000);
+            const winner = s.winner_id ? ` · 🥇 ${names.get(s.winner_id) || `<@${s.winner_id}>`} (${s.winner_points} pts)` : "";
+            return `**#${s.id} ${s.name}** — ended <t:${ended}:D> · ${s.players} player(s)${winner}`;
+        });
+
+        const embed = new EmbedBuilder()
+            .setTitle("Past seasons")
+            .setColor(ACTIVITY_COLOUR)
+            .setDescription(lines.join("\n").slice(0, 4096))
+            .setFooter({ text: "View one with /activity seasons season:<number>" });
+
+        return interaction.editReply({ embeds: [embed] });
+    },
+
     // Public leaderboard message: the first page of rankings, plus a button that
     // opens the full leaderboard as a private, paged view when there's more.
     async generateStatsMessage(guild) {
@@ -432,6 +593,11 @@ async function leaderboardPages(guild) {
             .setDescription("No player activity recorded yet.\n\nYou can add a player using `/activity add`.")];
     }
 
+    return buildLeaderboardPages(guild, title, players);
+}
+
+// Ranked pages for any list of players (current leaderboard or an archived season).
+async function buildLeaderboardPages(guild, title, players, footerPrefix = "") {
     const names = await getPlayerNames(guild, players.map(p => p.user_id));
 
     const entries = players.map((player, index) =>
@@ -444,8 +610,28 @@ async function leaderboardPages(guild) {
             .setTitle(title)
             .setColor(ACTIVITY_COLOUR)
             .setDescription(text)
-            .setFooter({ text: `${players.length} player(s) · Page ${index + 1}/${pages.length}` })
+            .setFooter({ text: `${footerPrefix}${players.length} player(s) · Page ${index + 1}/${pages.length}` })
     );
 }
 
+// Archived season leaderboard, for /activity seasons season:<id>.
+async function seasonPages(guild, seasonId) {
+    const [season] = await executeQuery(
+        `SELECT name, ended_at FROM player_activity_seasons WHERE id = ? AND guild_id = ?`,
+        [seasonId, guild.id]
+    );
+    if (!season) return [];
+
+    const players = await executeQuery(`
+        SELECT CAST(user_id AS CHAR) AS user_id, games_played, wins, total_points
+        FROM player_activity_archive
+        WHERE season_id = ? AND guild_id = ?
+        ORDER BY total_points DESC, wins DESC
+    `, [seasonId, guild.id]);
+
+    const ended = new Date(season.ended_at).toLocaleDateString("en-GB");
+    return buildLeaderboardPages(guild, `${season.name} (archived)`, players, `Ended ${ended} · `);
+}
+
 registerPaginator("activity", leaderboardPages);
+registerPaginator("season", seasonPages);

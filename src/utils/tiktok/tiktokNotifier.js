@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "discord.js";
 import { executeQuery } from "../../database.js";
-import { sendLogEmbed } from "../logger.js";
+import { reportJobFailure, sendLogEmbed } from "../logger.js";
 import COLOUR_VALUES from "../colourMap.js";
 import { fetchRecentVideos, isTikTokConfigured, refreshAccessToken } from "./tiktokApi.js";
 
@@ -125,6 +125,7 @@ export async function checkGuildForNewVideos(client, guildId) {
     const channel = await guild.channels.fetch(settings.channel_id).catch(() => null);
     if (!channel) {
         console.error(`[TikTok] Announcement channel ${settings.channel_id} missing in guild ${guildId}`);
+        await reportJobFailure(guildId, "TikTok announcement", "The TikTok announcement channel no longer exists, so a new video wasn't announced. Set it again with `/tiktok channel`.");
         return 0;
     }
 
@@ -164,6 +165,7 @@ export function startTikTokWatcher(client) {
                     await checkGuildForNewVideos(client, guild_id);
                 } catch (error) {
                     console.error(`[TikTok] Check failed for guild ${guild_id}:`, error);
+                    await reportJobFailure(guild_id, "TikTok upload check", error);
                 }
             }
         } finally {

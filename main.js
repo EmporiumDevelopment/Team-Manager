@@ -93,6 +93,24 @@ function extractTarball(gzipped) {
     return files;
 }
 
+// Commits between the previously running version and the new one, newest first,
+// for the "Bot updated" change log the bot posts to each logs channel on startup.
+async function buildUpdateNotice(repo, from, to, headers) {
+    const notice = { repo, from: from || null, to, commits: [] };
+    const url = from
+        ? `https://api.github.com/repos/${repo}/compare/${from}...${to}`
+        : `https://api.github.com/repos/${repo}/commits/${to}`;
+    const response = await fetch(url, {
+        headers: { ...headers, Accept: "application/vnd.github+json" },
+        signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
+    const json = await response.json();
+    const commits = from ? json.commits || [] : [json];
+    notice.commits = commits.slice(-20).reverse().map(c => ({ sha: c.sha, message: c.commit.message }));
+    return notice;
+}
+
 function hashDependencies(readFile) {
     const hash = crypto.createHash("sha256");
     for (const file of ["package.json", "package-lock.json"]) {
@@ -166,8 +184,17 @@ async function update() {
         execSync("npm install --omit=dev --no-audit --no-fund", { cwd: ROOT, stdio: "inherit" });
     }
 
+    // If an earlier change log was never posted (bot didn't reach Discord), cover
+    // both updates in one.
+    const noticeFrom = state.pendingNotice?.from ?? state.commit;
+    const pendingNotice = await buildUpdateNotice(repo, noticeFrom, sha, headers).catch(error => {
+        log(`Couldn't fetch the change list: ${error.message}`);
+        return { repo, from: noticeFrom || null, to: sha, commits: [] };
+    });
+
     fs.writeFileSync(STATE_FILE, JSON.stringify({
         commit: sha,
+        pendingNotice,
         files: [...files.keys()].filter(f => !PROTECTED_PATHS.has(f)),
         dependencyHash,
         updatedAt: new Date().toISOString(),

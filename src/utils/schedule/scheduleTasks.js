@@ -3,6 +3,7 @@ import { announceTodaysEvents } from "./scheduleUtils.js";
 import client from "../../index.js";
 import { executeQuery } from "../../database.js";
 import { cleanupCompletedEvents } from "./scheduleCleanup.js";
+import { reportJobFailure } from "../logger.js";
 
 const TIMEZONE = "Europe/London";
 
@@ -34,6 +35,7 @@ cron.schedule("00 07 * * *", async () => {
                 await announceTodaysEvents(guild, client, team);
             } catch (error) {
                 console.error(`Error sending announcements for guild ${guild.id}:`, error);
+                await reportJobFailure(guild.id, `${team} schedule announcements`, error);
             }
         }
 
@@ -59,6 +61,7 @@ cron.schedule("0 0 * * *", async () => {
                 await cleanupCompletedEvents(client, guild, team);
             } catch(error) {
                 console.error(`Error cleaning complete events for guild ${guild.id}:`, error);
+                await reportJobFailure(guild.id, `${team} schedule cleanup`, error);
             }
         }
     }

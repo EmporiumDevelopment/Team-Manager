@@ -74,3 +74,34 @@ export async function sendLogEmbed(guildId, logMessage, embedColour = COLOUR_VAL
         console.error(`Error sending log embed for server: ${serverName} ID: ${guildId}`, error);
     }
 }
+
+// Readable explanations for the Discord API errors background jobs usually hit.
+const DISCORD_ERROR_HINTS = {
+    10003: "The channel no longer exists.",
+    10008: "The message no longer exists.",
+    50001: "I can't see that channel (missing access).",
+    50013: "I'm missing permissions in that channel.",
+};
+
+const FAILURE_ALERT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+const lastFailureAlert = new Map();
+
+// Posts a ⚠ to the guild's logs channel when a scheduled job fails (scrim posts,
+// schedule announcements, TikTok checks...), which otherwise only shows in the
+// console. Each guild + job alerts at most once every 6 hours so a persistent
+// problem doesn't flood the channel.
+export async function reportJobFailure(guildId, job, problem) {
+    const key = `${guildId}:${job}`;
+    if (Date.now() - (lastFailureAlert.get(key) || 0) < FAILURE_ALERT_COOLDOWN_MS) return;
+    lastFailureAlert.set(key, Date.now());
+
+    const reason = problem instanceof Error
+        ? (DISCORD_ERROR_HINTS[problem.code] || problem.message)
+        : String(problem);
+
+    await sendLogEmbed(
+        guildId,
+        `**⚠ ${job} failed**\n\n${reason}\n\n-# Further failures of this job are muted for 6 hours. Run \`/setup status\` to check the setup.`.slice(0, 4000),
+        COLOUR_VALUES.WARNING
+    );
+}

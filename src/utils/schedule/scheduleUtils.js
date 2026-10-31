@@ -2,6 +2,7 @@ import { EmbedBuilder } from "discord.js";
 import { executeQuery } from "../../database.js";
 import { DateTime } from "luxon";
 import { buildScheduleComponents } from "./scheduleAvailability.js";
+import { reportJobFailure } from "../logger.js";
 
 // The cron jobs run on UK time, so "today" must be UK time too — MySQL's CURRENT_DATE
 // follows the database server's timezone, which can be a different day around midnight.
@@ -9,6 +10,53 @@ export const SCHEDULE_TIMEZONE = "Europe/London";
 
 function londonToday() {
     return DateTime.now().setZone(SCHEDULE_TIMEZONE).toISODate();
+}
+
+// Event dates/times are entered and stored as Central European time (CET/CEST).
+export const EVENT_TIMEZONE = "Europe/Berlin";
+
+// Unix seconds for an event row, for Discord timestamps (<t:…>), which show every
+// viewer the time in their own timezone.
+export function eventUnix(event) {
+    return Math.floor(DateTime.fromSQL(`${event.event_date} ${event.event_time}`, { zone: EVENT_TIMEZONE }).toSeconds());
+}
+
+const WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+// Accepts "today", "tomorrow", a weekday ("fri"/"friday" = the next one, today
+// included), "DD/MM" (this year, or next year if already passed), "DD/MM/YY" or
+// "DD/MM/YYYY" ("/", "." or "-" separators). Returns a Luxon date or null.
+export function parseEventDate(input) {
+    const text = String(input || "").trim().toLowerCase();
+    const today = DateTime.now().setZone(EVENT_TIMEZONE).startOf("day");
+
+    if (text === "today") return today;
+    if (text === "tomorrow") return today.plus({ days: 1 });
+
+    const weekday = WEEKDAYS.findIndex(day => day === text || day.slice(0, 3) === text);
+    if (weekday !== -1) {
+        return today.plus({ days: (weekday + 1 - today.weekday + 7) % 7 });
+    }
+
+    const match = text.match(/^(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2}|\d{4}))?$/);
+    if (!match) return null;
+
+    const [, day, month, rawYear] = match;
+    const year = rawYear ? (rawYear.length === 2 ? 2000 + Number(rawYear) : Number(rawYear)) : today.year;
+    let date = DateTime.fromObject({ year, month: Number(month), day: Number(day) }, { zone: EVENT_TIMEZONE });
+    if (!date.isValid) return null;
+    if (!rawYear && date < today) date = date.plus({ years: 1 });
+    return date;
+}
+
+// Accepts "20:00", "20.00", "2000", "9:30" or "930". Returns "HH:mm:ss" or null.
+export function parseEventTime(input) {
+    const match = String(input || "").trim().match(/^(\d{1,2})[:.]?(\d{2})$/);
+    if (!match) return null;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour > 23 || minute > 59) return null;
+    return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`;
 }
 
 // All events for a guild/team in display order. The number shown next to each event
@@ -54,10 +102,11 @@ async function refreshScheduleEmbed(guild, team) {
 
     const events = await getOrderedEvents(guild.id, team);
 
+    // Discord timestamps show each viewer the event in their own timezone.
     let eventList = events.map((event, index) => {
-        const eventDateTime = DateTime.fromSQL(`${event.event_date} ${event.event_time}`);
+        const unix = eventUnix(event);
         const statusTag = event.status === "cancelled" ? " ~~(Cancelled)~~" : "";
-        return `-# [${index + 1}]\n## ${event.event_name}${statusTag}\n> **Date:** ${eventDateTime.toFormat("dd/MM/yy")}\n> **Time:** ${eventDateTime.toFormat("HH:mm")}`;
+        return `-# [${index + 1}]\n## ${event.event_name}${statusTag}\n> **When:** <t:${unix}:F>\n> <t:${unix}:R>`;
     }).join("\n");
 
     if (!eventList) {
@@ -76,7 +125,8 @@ async function refreshScheduleEmbed(guild, team) {
 async function getTodaysEvents(guild, team) {
 
     const events = await executeQuery(`
-        SELECT id, event_name, DATE_FORMAT(event_time, '%H:%i:%s') AS event_time, created_by
+        SELECT id, event_name, DATE_FORMAT(event_date, '%Y-%m-%d') AS event_date,
+            DATE_FORMAT(event_time, '%H:%i:%s') AS event_time, created_by
         FROM ${team}_schedule
         WHERE guild_id = ? AND event_date = ? AND status = 'active' AND announcement_message_id IS NULL;
     `, [guild.id, londonToday()]);
@@ -106,6 +156,7 @@ async function announceTodaysEvents(guild, client, team) {
     const channel = await client.channels.fetch(settings.announcements_channel_id).catch(() => null);
     if (!channel) {
         console.log(`Announcements channel ${settings.announcements_channel_id} no longer exists in guild: ${guildId}`);
+        await reportJobFailure(guildId, `${team} schedule announcements`, "The announcements channel no longer exists, so today's events weren't announced. Set it again with `/schedule channel type:Announcements`.");
         return 0;
     }
 
@@ -114,12 +165,12 @@ async function announceTodaysEvents(guild, client, team) {
 
     for (const event of events) {
 
-        const formattedTime = DateTime.fromFormat(event.event_time, "HH:mm:ss").toFormat("HH:mm");
+        const unix = eventUnix(event);
 
         const embed = new EmbedBuilder()
             .setTitle(`Today's Schedule`)
             .setColor(0x007FFF)
-            .setDescription(`**Event:** ${event.event_name}\n**Time:** ${formattedTime}\n\nLet us know below if you are available for this event.\n`)
+            .setDescription(`**Event:** ${event.event_name}\n**Time:** <t:${unix}:t> (<t:${unix}:R>)\n\nLet us know below if you are available for this event.\n`)
             .addFields({ name: "Available Players", value: "No players", inline: false });
 
         const message = await channel.send({

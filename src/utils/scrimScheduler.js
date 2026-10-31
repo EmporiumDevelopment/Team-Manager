@@ -1,8 +1,10 @@
 import cron from "node-cron";
 import { executeQuery } from "../database.js";
-import { renderScrimEmbed, buildScrimComponents, clearScrimAvailability } from "./scrimAvailability.js";
+import { renderScrimMessage, clearScrimAvailability } from "./scrimAvailability.js";
+import { reportJobFailure } from "./logger.js";
 
 const TIMEZONE = "Europe/London";
+const TEAM_LABELS = { mixed: "Mixed", female: "Female", clan: "Clan" };
 
 // Clears each *enabled* guild's scrim channel. Previously only the first guild's
 // `is_enabled` flag was checked, and it gated every guild at once; now the toggle
@@ -14,8 +16,12 @@ async function clearScrimChannels(client, rows, label) {
         const guild = await client.guilds.fetch(guild_id).catch(() => null);
         if (!guild) continue;
 
+        const job = `${label} scrim channel clear`;
         const scrimChannel = await client.channels.fetch(channel_id).catch(() => null);
-        if (!scrimChannel) continue;
+        if (!scrimChannel) {
+            await reportJobFailure(guild_id, job, "The scrim channel no longer exists. Set it again with `/scrim channel`.");
+            continue;
+        }
 
         try {
             const messages = await scrimChannel.messages.fetch({ limit: 100 });
@@ -23,6 +29,7 @@ async function clearScrimChannels(client, rows, label) {
             console.log(`[${guild.name} | ${guild.id}] ${label} scrim channel cleared.`);
         } catch (error) {
             console.error(`[${guild.name} | ${guild.id}] Error clearing ${label} scrim channel:`, error);
+            await reportJobFailure(guild_id, job, error);
         }
     }
 }
@@ -77,9 +84,9 @@ export function scheduleScrims(client) {
     });
 }
 
-// Posts a fresh scrim availability embed (with buttons) to every enabled guild for
+// Posts a fresh scrim availability message (with buttons) to every enabled guild for
 // the given team. Availability is tracked in the DB and rendered from there, so the
-// three teams now share one implementation instead of three near-identical copies.
+// three teams share one implementation.
 async function sendScrimEmbeds(client, team) {
 
     if (!client) {
@@ -98,20 +105,21 @@ async function sendScrimEmbeds(client, team) {
         const guild = await client.guilds.fetch(guild_id).catch(() => null);
         if (!guild) continue;
 
-        const scrimChannel = await client.channels.fetch(channel_id).catch(() => null);
-        if (!scrimChannel) continue; // channel not set up
+        const job = `${TEAM_LABELS[team]} scrim availability post`;
+        const scrimChannel = channel_id ? await client.channels.fetch(channel_id).catch(() => null) : null;
+        if (!scrimChannel) {
+            await reportJobFailure(guild_id, job, channel_id
+                ? "The scrim channel no longer exists. Set it again with `/scrim channel`."
+                : "Scrims are enabled but no channel is set. Use `/scrim channel`.");
+            continue;
+        }
 
         const roleMention = role_id ? `<@&${role_id}>` : "";
 
         try {
-            const embed = await renderScrimEmbed(guild_id, null, {
+            const message = await scrimChannel.send(await renderScrimMessage(guild_id, null, {
                 title: embed_title || "Scrim Availability",
-            });
-
-            const message = await scrimChannel.send({
-                embeds: [embed],
-                components: buildScrimComponents(),
-            });
+            }));
 
             await executeQuery(
                 `INSERT INTO ${team}_scrim_settings (guild_id, message_id) VALUES (?, ?)
@@ -131,6 +139,7 @@ async function sendScrimEmbeds(client, team) {
             console.log(`[${guild.name} | ${guild.id}] ${team} scrim embed sent.`);
         } catch (error) {
             console.error(`[${guild.name} | ${guild.id}] Error sending ${team} scrim embed:`, error);
+            await reportJobFailure(guild_id, job, error);
         }
     }
 }

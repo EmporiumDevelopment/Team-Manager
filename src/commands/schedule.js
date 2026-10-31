@@ -1,9 +1,8 @@
 import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from "discord.js";
 import { executeQuery } from "../database.js";
 import { sendLogEmbed } from "../utils/logger.js";
-import { DateTime } from "luxon";
 import COLOUR_VALUES from "../utils/colourMap.js"
-import { announceTodaysEvents, refreshScheduleEmbed, resolveEventByPosition } from "../utils/schedule/scheduleUtils.js";
+import { announceTodaysEvents, eventUnix, parseEventDate, parseEventTime, refreshScheduleEmbed, resolveEventByPosition } from "../utils/schedule/scheduleUtils.js";
 
 export default {
     data: new SlashCommandBuilder()
@@ -108,12 +107,12 @@ export default {
             )
             .addStringOption(option =>
                 option.setName("event-date")
-                .setDescription("Event date (DD/MM/YY)")
+                .setDescription("Date: today, tomorrow, friday, 05/11 or 05/11/26")
                 .setRequired(true)
             )
             .addStringOption(option =>
                 option.setName("event-time")
-                .setDescription("Event time (HH:mm)")
+                .setDescription("Time in CET/CEST, 24-hour: 20:00, 2000 or 9:30")
                 .setRequired(true)
             )
         )
@@ -583,48 +582,35 @@ export default {
             return interaction.reply({ content: "You need to enter an event name.", flags: MessageFlags.Ephemeral });
         }
 
-        if (!eventDate || !/^(\d{2})\/(\d{2})\/(\d{2})$/.test(eventDate)) {
-            return interaction.reply({ content: "Invalid date format. Use DD/MM/YY (Example: 01/01/25)", flags: MessageFlags.Ephemeral });
+        // Dates accept today/tomorrow/weekday/DD/MM[/YY[YY]]; times accept 20:00/2000/9:30.
+        const parsedDate = parseEventDate(eventDate);
+        if (!parsedDate) {
+            return interaction.reply({ content: "Couldn't read that date. Try `today`, `tomorrow`, `friday`, `05/11` or `05/11/26`.", flags: MessageFlags.Ephemeral });
         }
 
-        if (!eventTime || !/^(\d{2}):(\d{2})$/.test(eventTime)) {
-            return interaction.reply({ content: "Invalid time format. Use HH:mm (Example: 20:00)", flags: MessageFlags.Ephemeral });
+        const storedTime = parseEventTime(eventTime);
+        if (!storedTime) {
+            return interaction.reply({ content: "Couldn't read that time. Use 24-hour CET/CEST time like `20:00`, `2000` or `9:30`.", flags: MessageFlags.Ephemeral });
         }
 
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-        // 🔹 Convert user input date to MySQL format (`YYYY-MM-DD`)
-        const [day, month, year] = eventDate.split("/");
-        const formattedDate = `20${year}-${month}-${day}`;
-
-        // 🔹 Convert user input time to MySQL format (`HH:mm:00`)
-        const formattedTime = `${eventTime}:00`;
-
-        // Convert event time to CET before storing in MySQL
-        const cetEventTime = DateTime.fromFormat(`${formattedDate} ${formattedTime}`, "yyyy-MM-dd HH:mm:ss", { zone: "Europe/Berlin" });
-
-        // Regex alone lets through impossible values like 31/02/25 or 25:99, which
-        // used to be stored as a NULL date.
-        if (!cetEventTime.isValid) {
-            return interaction.editReply({ content: `**${eventDate} ${eventTime}** isn't a real date/time. Use DD/MM/YY and HH:mm (Example: 01/01/25 20:00).` });
-        }
-
-        // Convert to CET/CEST and format properly for MySQL insertion (HH:mm:ss)
-        const mysqlFormattedTime = cetEventTime.toFormat("HH:mm:ss");
+        const storedDate = parsedDate.toISODate();
+        const unix = eventUnix({ event_date: storedDate, event_time: storedTime });
 
         await executeQuery(`
             INSERT INTO ${team}_schedule (guild_id, event_name, event_date, event_time, created_by)
             VALUES (?, ?, ?, ?, ?);
-        `, [guildId, eventName, cetEventTime.toISODate(), mysqlFormattedTime, creator]);
+        `, [guildId, eventName, storedDate, storedTime, creator]);
 
         // update schedule
         await this.updateScheduleEmbed(interaction, team);
 
-        // send confirmation and logs
-        await interaction.editReply({ content: `Event **${eventName}** added for **${eventDate} at ${eventTime}**. Schedule updated.` });
+        // send confirmation and logs (timestamps show in each viewer's timezone)
+        await interaction.editReply({ content: `Event **${eventName}** added for **<t:${unix}:F>** (<t:${unix}:R>). Schedule updated.` });
         await sendLogEmbed(
-            guildId, 
-            `**Schedule Event Added**\n\nAn event has been added to the ${team} schedule.\n\n**Event Name:** ${eventName}\n**Date:** ${eventDate}\n**Time:** ${eventTime}\n**By:** <@${creator}>`, 
+            guildId,
+            `**Schedule Event Added**\n\nAn event has been added to the ${team} schedule.\n\n**Event Name:** ${eventName}\n**When:** <t:${unix}:F>\n**By:** <@${creator}>`,
             COLOUR_VALUES.ADD
         );
     },
@@ -737,22 +723,22 @@ export default {
                 updateParams = [input, guildId, rowId];
 
             } else if (type === "date") {
-                const parsedDate = DateTime.fromFormat(input, "dd/MM/yy");
-                if (!/^(\d{2})\/(\d{2})\/(\d{2})$/.test(input) || !parsedDate.isValid) {
-                    return interaction.editReply({ content: "Invalid date. Use DD/MM/YY (Example: 01/01/25)" });
+                const parsedDate = parseEventDate(input);
+                if (!parsedDate) {
+                    return interaction.editReply({ content: "Couldn't read that date. Try `today`, `tomorrow`, `friday`, `05/11` or `05/11/26`." });
                 }
 
                 updateQuery = `UPDATE ${team}_schedule SET event_date = ? WHERE guild_id = ? AND id = ?;`;
                 updateParams = [parsedDate.toISODate(), guildId, rowId];
 
             } else if (type === "time") {
-                const parsedTime = DateTime.fromFormat(input, "HH:mm");
-                if (!/^(\d{2}):(\d{2})$/.test(input) || !parsedTime.isValid) {
-                    return interaction.editReply({ content: "Invalid time. Use HH:mm (Example: 20:00)" });
+                const storedTime = parseEventTime(input);
+                if (!storedTime) {
+                    return interaction.editReply({ content: "Couldn't read that time. Use 24-hour CET/CEST time like `20:00`, `2000` or `9:30`." });
                 }
 
                 updateQuery = `UPDATE ${team}_schedule SET event_time = ? WHERE guild_id = ? AND id = ?;`;
-                updateParams = [parsedTime.toFormat("HH:mm:ss"), guildId, rowId];
+                updateParams = [storedTime, guildId, rowId];
             }
 
             // 🔹 Save changes to the database

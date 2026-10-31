@@ -6,6 +6,7 @@ import { handleMemberLeave } from './handlers/roster/playerHandler.js';
 import { scheduleScrims } from './utils/scrimScheduler.js';
 import { startTikTokWatcher } from './utils/tiktok/tiktokNotifier.js';
 import { isPageButton, handlePageButton } from './utils/pagination.js';
+import { announcePendingUpdate } from './utils/updateNotice.js';
 import { sendLogEmbed } from './utils/logger.js';
 import { executeQuery } from './database.js';
 import "./utils/schedule/scheduleTasks.js"
@@ -38,6 +39,7 @@ client.once(Events.ClientReady, () => {
     console.log(`Bot is online!`);
     scheduleScrims(client);
     startTikTokWatcher(client);
+    announcePendingUpdate(client).catch(error => console.error("[updater] Update notice failed:", error));
 });
 
 // Default settings rows for a newly joined guild. Each insert is independent so one

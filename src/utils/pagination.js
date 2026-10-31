@@ -8,7 +8,8 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlag
 const PREFIX = "page";
 const paginators = new Map();
 
-// buildPages(guild) -> Promise<EmbedBuilder[]> (one embed per page, page 1 first)
+// buildPages(guild, arg) -> Promise<EmbedBuilder[]> (one embed per page, page 1 first).
+// A kind like "season-12" uses the "season" paginator with arg "12".
 export function registerPaginator(kind, buildPages) {
     paginators.set(kind, buildPages);
 }
@@ -61,21 +62,36 @@ function navigationRow(kind, page, totalPages) {
     );
 }
 
-export async function handlePageButton(interaction) {
-    const [, kind, rawPage] = interaction.customId.split(":");
-    const buildPages = paginators.get(kind);
-    const requested = Number(rawPage);
-    if (!buildPages || !Number.isInteger(requested) || !interaction.guild) return;
+async function renderPage(kind, guild, requested) {
+    const [base, arg] = kind.split("-", 2);
+    const buildPages = paginators.get(kind) || paginators.get(base);
+    if (!buildPages) return null;
 
-    const pages = await buildPages(interaction.guild);
+    const pages = await buildPages(guild, arg);
     const totalPages = Math.max(pages.length, 1);
     const page = Math.min(Math.max(requested, 1), totalPages);
     const embed = pages[page - 1] || new EmbedBuilder().setDescription("Nothing to show yet.");
 
-    const view = {
+    return {
         embeds: [embed],
         components: totalPages > 1 ? [navigationRow(kind, page, totalPages)] : [],
     };
+}
+
+// Opens page 1 of a paged view from a slash command (the reply must already be
+// deferred as ephemeral).
+export async function showPagedView(interaction, kind) {
+    const view = await renderPage(kind, interaction.guild, 1);
+    return interaction.editReply(view || { content: "Nothing to show yet." });
+}
+
+export async function handlePageButton(interaction) {
+    const [, kind, rawPage] = interaction.customId.split(":");
+    const requested = Number(rawPage);
+    if (!Number.isInteger(requested) || !interaction.guild) return;
+
+    const view = await renderPage(kind, interaction.guild, requested);
+    if (!view) return;
 
     // Buttons on the private copy flip its page; buttons on the public message open
     // a new private copy.

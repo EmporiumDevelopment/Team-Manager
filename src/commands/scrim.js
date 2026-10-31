@@ -3,7 +3,7 @@ import { MessageFlags, PermissionsBitField } from "discord.js";
 import { sendLogEmbed } from "../utils/logger.js";
 import { executeQuery } from "../database.js";
 import COLOUR_VALUES from "../utils/colourMap.js";
-import { renderScrimEmbed, buildScrimComponents, clearScrimAvailability } from "../utils/scrimAvailability.js";
+import { renderScrimMessage, clearScrimAvailability } from "../utils/scrimAvailability.js";
 
 export default {
     data: new SlashCommandBuilder()
@@ -417,11 +417,9 @@ export default {
             }
 
             // Re-render straight from the availability table and re-attach the buttons.
-            const embed = await renderScrimEmbed(guildId, message_id, {
+            await message.edit(await renderScrimMessage(guildId, message_id, {
                 title: embed_title || "Scrim Availability",
-            });
-
-            await message.edit({ embeds: [embed], components: buildScrimComponents() });
+            }));
             await interaction.editReply({ content: "Scrim availability embed restored." });
 
         } catch (error) {
@@ -471,12 +469,7 @@ export default {
                 return interaction.editReply({ content: `I do not have permission to send messages in the ${team} scrims channel.` });
             }
 
-            const embed = await renderScrimEmbed(guildId, null, { title: embedTitle });
-
-            const embedMessage = await scrimChannel.send({
-                embeds: [embed],
-                components: buildScrimComponents(),
-            });
+            const embedMessage = await scrimChannel.send(await renderScrimMessage(guildId, null, { title: embedTitle }));
 
             await executeQuery(`
                 INSERT INTO ${team}_scrim_settings (guild_id, message_id) VALUES (?, ?)
