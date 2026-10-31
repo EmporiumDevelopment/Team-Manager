@@ -10,7 +10,7 @@ export async function sendLogEmbed(guildId, logMessage, embedColour = COLOUR_VAL
         return;
     }
 
-    const guild = await client.guilds.fetch(guildId);
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
     const serverName = guild ? guild.name : "Unknown Server";
 
     try {

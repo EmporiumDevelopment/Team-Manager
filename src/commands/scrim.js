@@ -1,8 +1,9 @@
 import { SlashCommandBuilder } from "@discordjs/builders";
-import { PermissionsBitField, EmbedBuilder } from "discord.js";
+import { PermissionsBitField } from "discord.js";
 import { sendLogEmbed } from "../utils/logger.js";
 import { executeQuery } from "../database.js";
 import COLOUR_VALUES from "../utils/colourMap.js";
+import { renderScrimEmbed, buildScrimComponents, clearScrimAvailability } from "../utils/scrimAvailability.js";
 
 export default {
     data: new SlashCommandBuilder()
@@ -94,27 +95,6 @@ export default {
                         .setRequired(true)
                 )
         )
-        // emojis
-        .addSubcommand(subcommand =>
-            subcommand
-            .setName("emojis")
-            .setDescription("Set the custom emojis for scrim availability.")
-            .addStringOption(option =>
-                option.setName("16")
-                    .setDescription("Emoji for 16-player scrim")
-                    .setRequired(true)
-            )
-            .addStringOption(option =>
-                option.setName("20")
-                    .setDescription("Emoji for 20-player scrim")
-                    .setRequired(true)
-            )
-            .addStringOption(option =>
-                option.setName("23")
-                    .setDescription("Emoji for 23-player scrim")
-                    .setRequired(true)
-            ),
-        )
         // fix
         .addSubcommand(subcommand =>
             subcommand
@@ -184,7 +164,7 @@ export default {
             `, [guildId]);
 
         // Permission check
-        if(["channel", "sendavailability", "role", "title", "emojis", "fix", "toggle"].includes(subcommand)) {
+        if(["channel", "sendavailability", "role", "title", "fix", "toggle"].includes(subcommand)) {
             if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
                 return interaction.reply({ content: "You need **Manage Server** permission to modify the roster!", ephemeral: true });
             }
@@ -229,8 +209,6 @@ export default {
             await this.setTitle(interaction);
         } else if(subcommand === "sendavailability") {
             await this.sendScrimEmbed(interaction);
-        } else if(subcommand === "emojis") {
-            await this.setScrimEmojis(interaction);
         } else if(subcommand === "fix") {
             await this.fixScrimEmbed(interaction);
         } else if(subcommand === "toggle") {
@@ -296,7 +274,7 @@ export default {
         const guildId = interaction.guild.id;
 
         const title = interaction.options.getString("title");
-        const team = interaction.options.getString("team-role");
+        const team = interaction.options.getString("team-type");
 
         try {
 
@@ -392,70 +370,6 @@ export default {
         }
     },
 
-    async setScrimEmojis(interaction) {
-
-        const serverName = interaction.guild.name;
-        const guildId = interaction.guild.id;
-
-        const emoji16 = interaction.options.getString("16");
-        const emoji20 = interaction.options.getString("20");
-        const emoji23 = interaction.options.getString("23");
-
-        try {
-
-            // Validate user input
-            if(!emoji16) {  
-                return interaction.reply({ content: "You must provide an emoji for 16.", ephemeral: true });
-            }
-
-            if(!emoji20) {
-                return interaction.reply({ content: "You must provide an emoji for 20.", ephemeral: true });
-            }
-
-            if(!emoji23) {
-                return interaction.reply({ content: "You must provide an emoji for 23.", ephemeral: true });
-            }
-            
-            const emojiRegex = /^<:\w+:\d+>$/;
-            if (!emojiRegex.test(emoji16) || !emojiRegex.test(emoji20) || !emojiRegex.test(emoji23)) {
-                return interaction.reply({ content: "Please provide valid custom emojis in the format `<:name:id>`!", ephemeral: true });
-            }
-
-            // Check if scrim emojis exist for the guild
-            const scrimEmojis = await executeQuery(`
-                SELECT * FROM scrim_emojis WHERE guild_id = ?
-            `, [guildId]);
-
-            if (scrimEmojis.length === 0) {
-                // Initialize scrim emojis if not present
-                await executeQuery(`
-                    INSERT INTO scrim_emojis (guild_id) VALUES (?)
-                `, [guildId]);
-                console.log(`No scrim emojis found for guild: ${guildId}. Initialized default settings.`);
-            }
-            
-            // Insert or update the emojis in scrim_emojis
-            await executeQuery(`
-                INSERT INTO scrim_emojis (guild_id, emoji_16, emoji_20, emoji_23)
-                VALUES (?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE emoji_16 = VALUES(emoji_16), emoji_20 = VALUES(emoji_20), emoji_23 = VALUES(emoji_23);
-            `, [guildId, emoji16, emoji20, emoji23]);
-    
-            // Send confirmation message
-            await interaction.reply({ content: "Scrim emojis updated successfully!", ephemeral: true });
-
-            await sendLogEmbed(
-                guildId, 
-                `**Scrim Settings Updated**\n\n The Scrim emojis have been updated\n\n**16 Players Emoji:** ${emoji16}\n**20 Players Emoji:** ${emoji20}\n**23 Players Emoji:** ${emoji23}\n**By:** <@${interaction.user.id}>`, 
-                COLOUR_VALUES.EDIT
-            );
-
-        } catch (error) {
-            console.error(`Failed to save scrim emojis for server: ${serverName} ID: ${guildId}:`, error);
-            await interaction.reply({ content: "There was an error setting scrim emojis.", ephemeral: true });
-        }
-    },
-
     async fixScrimEmbed(interaction) {
 
         await interaction.deferReply({ ephemeral: true });
@@ -466,107 +380,49 @@ export default {
         try {
 
             if(!team) {
-                return interaction.reply({ content: "You must specify the team you want to fix scrim availablity for. (Mixed/Female)", ephemeral: true });
+                return interaction.editReply({ content: "You must specify the team you want to fix scrim availability for. (Mixed/Female/Clan)" });
             }
 
-            // Fetch scrim settings
+            // Fetch scrim settings (channel, title, tracked message)
             const scrimSettings = await executeQuery(`
-                SELECT channel_id, embed_title FROM ${team}_scrim_settings WHERE guild_id = ?
+                SELECT channel_id, embed_title, message_id FROM ${team}_scrim_settings WHERE guild_id = ?
             `, [guildId]);
 
-            if (!scrimSettings || !scrimSettings[0]?.channel_id) {
-                return interaction.editReply({ content: "No scrim settings found. Use `/scrim setup` first." });
+            if (!scrimSettings[0]?.channel_id) {
+                return interaction.editReply({ content: "No scrim channel set. Use `/scrim channel` first." });
             }
 
-            // Fetch scrim message ID
-            const channels = await executeQuery(`
-                SELECT message_id FROM ${team}_scrim_settings WHERE guild_id = ?
-            `, [guildId]);
-
-            if (!channels || !channels[0]?.message_id) {
+            if (!scrimSettings[0]?.message_id) {
                 return interaction.editReply({ content: "No scrim message found. Use `/scrim sendavailability` first." });
             }
 
-            const scrimMessageId = channels[0]?.message_id;
+            const { channel_id, embed_title, message_id } = scrimSettings[0];
 
             let scrimChannel;
             try {
-                scrimChannel = await interaction.guild.channels.fetch(scrimSettings[0]?.channel_id);
+                scrimChannel = await interaction.guild.channels.fetch(channel_id);
             } catch (error) {
-                console.error(`Failed to fetch scrim channel ${scrimSettings[0]?.channel_id} for guild ${guildId}:`, error);
-                return interaction.editReply({ content: "Scrim channel doesn't exist or is inaccessible. Please reset it using `/scrim channel`.", ephemeral: true });
+                console.error(`Failed to fetch scrim channel ${channel_id} for guild ${guildId}:`, error);
+                return interaction.editReply({ content: "Scrim channel doesn't exist or is inaccessible. Please reset it using `/scrim channel`." });
             }
-
 
             if (!scrimChannel) {
                 return interaction.editReply({ content: "Scrim channel not found. Make sure it's correctly set." });
             }
 
-            const message = await scrimChannel.messages.fetch(scrimMessageId).catch(() => null);
+            const message = await scrimChannel.messages.fetch(message_id).catch(() => null);
             if (!message) {
-                console.log(`Failed to fetch scrim message ${scrimMessageId} for guild ${guildId}.`);
-                return interaction.editReply({ content: "Scrim message not found. You may need to resend it." });
+                console.log(`Failed to fetch scrim message ${message_id} for guild ${guildId}.`);
+                return interaction.editReply({ content: "Scrim message not found. You may need to resend it with `/scrim sendavailability`." });
             }
 
-            // Fetch emoji settings
-            const emojiRows = await executeQuery(`
-                SELECT emoji_16, emoji_20, emoji_23 FROM scrim_emojis WHERE guild_id = ?
-            `, [guildId]);
+            // Re-render straight from the availability table and re-attach the buttons.
+            const embed = await renderScrimEmbed(guildId, message_id, {
+                title: embed_title || "Scrim Availability",
+            });
 
-            if (!emojiRows.length === 0) {
-                return interaction.editReply({ content: "Scrim emojis are not set. Use `/scrim emojis` first." });
-            }
-
-            const { emoji_16, emoji_20, emoji_23 } = emojiRows[0];
-
-            // Check for missing reactions and re-add them if necessary
-            const expectedEmojis = [emoji_16, emoji_20, emoji_23];
-            const missingReactions = expectedEmojis.filter(emoji => !message.reactions.cache.some(r => r.emoji.id === emoji || r.emoji.name === emoji));
-
-            if (missingReactions.length > 0) {
-                await Promise.all(missingReactions.map(async (emoji) => {
-                    await message.react(emoji).catch(err => console.error(`Failed to re-add reaction ${emoji}:`, err));
-                }));
-            }
-
-            // Fetch reaction users
-            await Promise.all(
-                message.reactions.cache.map(async (reaction) => {
-                    await reaction.users.fetch().catch(err => console.error(`Failed to fetch users for ${reaction.emoji.name}:`, err));
-                })
-            );
-
-            // Retrieve users for each reaction
-            const reaction16 = message.reactions.cache.find(r => r.emoji.name === "_16" || r.emoji.id === emoji_16);
-            const users16 = reaction16 ? await reaction16.users.fetch().then(users => [...users.values()].filter(user => !user.bot)) : [];
-            //console.log(`16 users: ${users16}`);
-
-            const reaction20 = message.reactions.cache.find(r => r.emoji.name === "_20" || r.emoji.id === emoji_20);
-            const users20 = reaction20 ? await reaction20.users.fetch().then(users => [...users.values()].filter(user => !user.bot)) : [];
-            //console.log(`20 users: ${users20}`);
-
-            const reaction23 = message.reactions.cache.find(r => r.emoji.name === "_23" || r.emoji.id === emoji_23);
-            const users23 = reaction23 ? await reaction23.users.fetch().then(users => [...users.values()].filter(user => !user.bot)) : [];
-            //console.log(`23 users: ${users23}`);
-
-            // Format user lists
-            const users16List = users16.length > 0 ? users16.map(user => user.displayName).join("\n") : "No players";
-            const users20List = users20.length > 0 ? users20.map(user => user.displayName).join("\n") : "No players";
-            const users23List = users23.length > 0 ? users23.map(user => user.displayName).join("\n") : "No players";
-
-            // Update embed
-            const embed = new EmbedBuilder()
-                .setColor("#0099ff")
-                .setTitle(scrimSettings[0]?.embed_title || "Scrim Availability")
-                .setDescription("React to the time slots you can play.")
-                .addFields(
-                    { name: `${emoji_16} Players`, value: users16List, inline: true },
-                    { name: `${emoji_20} Players`, value: users20List, inline: true },
-                    { name: `${emoji_23} Players`, value: users23List, inline: true }
-                );
-
-            await message.edit({ embeds: [embed] });
-            await interaction.editReply({ content: "Scrim availability updated successfully!" });
+            await message.edit({ embeds: [embed], components: buildScrimComponents() });
+            await interaction.editReply({ content: "Scrim availability embed restored." });
 
         } catch (error) {
             console.error(`Error fixing scrim embed for guild ${guildId}:`, error);
@@ -590,73 +446,54 @@ export default {
         await interaction.deferReply({ ephemeral: true });
 
         const scrimSettings = await executeQuery(`
-            SELECT channel_id FROM ${team}_scrim_settings WHERE guild_id = ?
+            SELECT channel_id, embed_title, role_id, message_id FROM ${team}_scrim_settings WHERE guild_id = ?
         `, [guildId]);
 
         if (scrimSettings.length === 0 || !scrimSettings[0]?.channel_id) {
-            return interaction.editReply({ content: "The scrim channel has not been set up! Use `/scrim channel` first.", ephemeral: true });
+            return interaction.editReply({ content: "The scrim channel has not been set up! Use `/scrim channel` first." });
         }
-        const channel_id = scrimSettings[0]?.channel_id;
 
-        const scrimChannel = await client.channels.fetch(channel_id);
+        const { channel_id, embed_title, role_id, message_id: previousMessageId } = scrimSettings[0];
+
+        const scrimChannel = await client.channels.fetch(channel_id).catch(() => null);
 
         if (!scrimChannel) {
-            return interaction.editReply({ content: "Scrim channel not found. Please set the scrim channel first.", ephemeral: true });
+            return interaction.editReply({ content: "Scrim channel not found. Please set the scrim channel first." });
         }
 
-        const emojiRows = await executeQuery(`
-            SELECT emoji_16, emoji_20, emoji_23 FROM scrim_emojis WHERE guild_id = ?
-            `, [guildId]);
-
-        if (emojiRows.length === 0) {
-            console.log(`No emoji settings found for ${guild.name} | (${guildId}).`);
-            return interaction.editReply({ content: "Scrim emojis are not set. Please set the emojis first using `/scrim emojis`.", ephemeral: true });
-        }
-
-        const { emoji_16, emoji_20, emoji_23 } = emojiRows[0];
-
-        const titleRows = await executeQuery(`
-            SELECT embed_title FROM ${team}_scrim_settings WHERE guild_id = ?`
-            , [guildId]);
-
-        const embedTitle = (titleRows.length > 0 && titleRows[0]?.embed_title) ? titleRows[0].embed_title : "Scrim Availability";
-
-        const roleRows = await executeQuery(`
-            SELECT role_id FROM ${team}_scrim_settings WHERE guild_id = ?
-            `, [guildId]);
-
-        const roleId = (roleRows.length > 0 && roleRows[0].role_id) ? roleRows[0].role_id : null;
-
-        const roleMention = roleId ? `<@&${roleId}>` : "";
+        const embedTitle = embed_title || "Scrim Availability";
+        const roleMention = role_id ? `<@&${role_id}>` : "";
 
         try {
-            const embed = new EmbedBuilder()
-                .setTitle(embedTitle)
-                .setDescription("React to the time slots you can play.")
-                .setColor(0x00AAFF)
-                .addFields(
-                    { name: `${emoji_16} Players`, value: "No players", inline: true },
-                    { name: `${emoji_20} Players`, value: "No players", inline: true },
-                    { name: `${emoji_23} Players`, value: "No players", inline: true }
-                );
+            // We're posting a new message here, so Send Messages really is required.
+            const me = guild.members.me;
+            if (me && scrimChannel.permissionsFor(me)?.has(PermissionsBitField.Flags.SendMessages) === false) {
+                return interaction.editReply({ content: `I do not have permission to send messages in the ${team} scrims channel.` });
+            }
 
-            const embedMessage = await scrimChannel.send({ embeds: [embed] });
+            const embed = await renderScrimEmbed(guildId, null, { title: embedTitle });
+
+            const embedMessage = await scrimChannel.send({
+                embeds: [embed],
+                components: buildScrimComponents(),
+            });
 
             await executeQuery(`
                 INSERT INTO ${team}_scrim_settings (guild_id, message_id) VALUES (?, ?)
                 ON DUPLICATE KEY UPDATE message_id = VALUES(message_id);
             `, [guildId, embedMessage.id]);
 
-            await embedMessage.react(emoji_16);
-            await embedMessage.react(emoji_20);
-            await embedMessage.react(emoji_23);
+            // Drop the old message's availability so the table doesn't grow forever.
+            if (previousMessageId && previousMessageId !== embedMessage.id) {
+                await clearScrimAvailability(previousMessageId);
+            }
 
             if (roleMention) {
                 await scrimChannel.send(roleMention);
             }
 
             // send confirmation
-            await interaction.editReply({ content: "Scrim embed sent successfully!", ephemeral: true });
+            await interaction.editReply({ content: "Scrim embed sent successfully!" });
 
             // send discord log
             await sendLogEmbed(

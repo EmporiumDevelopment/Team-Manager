@@ -2,6 +2,7 @@ import { EmbedBuilder, PermissionsBitField, SlashCommandBuilder } from "discord.
 import { executeQuery } from "../database.js";
 import { sendLogEmbed } from "../utils/logger.js";
 import COLOUR_VALUES from "../utils/colourMap.js";
+import { formatPlayerList } from "../utils/playerNames.js";
 
 export default {
     data: new SlashCommandBuilder()
@@ -182,13 +183,14 @@ export default {
             // 4 = max amount of player inputs
             for (let i = 1; i <= 4; i++) {
                 const player = interaction.options.getUser(`player${i}`);
-                if (player) {
+                // ignore the same player picked twice (it used to count them twice)
+                if (player && !players.some(p => p.id === player.id)) {
                     players.push(player);
                 }
             }
 
             if(players.length === 0) {
-                return interaction.reply({ content: "At least one player must be specified.", ephemeral: true });
+                return interaction.editReply({ content: "At least one player must be specified." });
             }
 
             let points = result === "win" ? 3 : 1;
@@ -210,7 +212,7 @@ export default {
             await interaction.editReply({ content: `**${players.length} player(s)** activity recorded!\nMatch Result: **${result}**`, ephemeral: true });
 
             // send log
-            let playerMentions = players.map(p => `<@${p.id}>`).join(", ");
+            const playerMentions = await formatPlayerList(interaction.guild, players.map(p => p.id));
             await sendLogEmbed(
                 guildId,
                 `**Scrim Activity**\n\nScrim activity has been recorded\n\n**Players:** ${playerMentions}\n**Game Result:** ${result}\n**By:** <@${interaction.user.id}>`,
@@ -281,7 +283,7 @@ export default {
             // send log
             await sendLogEmbed(
                 guildId,
-                `**Scrim Activity**\n\nScrim activity has been removed\n\n**Player:** <@${user.id}>\n**Game Result:** ${result}\n**By:** <@${interaction.user.id}>`,
+                `**Scrim Activity**\n\nScrim activity has been removed\n\n**Player:** ${await formatPlayerList(interaction.guild, [user.id])}\n**Game Result:** ${result}\n**By:** <@${interaction.user.id}>`,
                 COLOUR_VALUES.REMOVE
             );
 
@@ -328,7 +330,7 @@ export default {
             // send logs
             await sendLogEmbed(
                 guildId, 
-                `**Scrim Activity**\n\nA user has been removed from Scrim Activity\n\n**Player:** <@${user.id}>\n**By:** <@${interaction.user.id}>`, 
+                `**Scrim Activity**\n\nA user has been removed from Scrim Activity\n\n**Player:** ${await formatPlayerList(interaction.guild, [user.id])}\n**By:** <@${interaction.user.id}>`, 
                 COLOUR_VALUES.REMOVE
             );
 
@@ -368,13 +370,23 @@ export default {
             .setColor("#FFD700");
 
         let leaderboardText = "";
+        let shown = 0;
 
         for (const player of players) {
 
             if (!player || !player.user_id) continue;
 
-            const mention = `<@${player.user_id}>`;
-            leaderboardText += `${mention}\n-# Games Played: ${player.games_played}\n-# Wins: ${player.wins}\n**Total Points:** ${player.total_points}\n\n`;
+            const entry = `**#${shown + 1}** <@${player.user_id}>\n-# Games Played: ${player.games_played}\n-# Wins: ${player.wins}\n**Total Points:** ${player.total_points}\n\n`;
+
+            // Discord rejects descriptions over 4096 characters; stop before that
+            // (leaving room for the note below) instead of failing every update.
+            if (leaderboardText.length + entry.length > 4000) break;
+            leaderboardText += entry;
+            shown++;
+        }
+
+        if (shown < players.length) {
+            leaderboardText += `-# …and ${players.length - shown} more player(s)`;
         }
 
         embed.setDescription(leaderboardText);
@@ -388,33 +400,43 @@ export default {
         const guildId = guild.id;
 
         // Fetch activity channel and message ID
-            const activitySettings = await executeQuery(`
-                SELECT channel_id, message_id FROM player_activity_settings WHERE guild_id = ?;
-            `, [guildId]);
+        const activitySettings = await executeQuery(`
+            SELECT channel_id, message_id FROM player_activity_settings WHERE guild_id = ?;
+        `, [guildId]);
 
-            const channelId = activitySettings[0]?.channel_id;
-            const messageId = activitySettings[0]?.message_id;
+        const channelId = activitySettings[0]?.channel_id;
+        const messageId = activitySettings[0]?.message_id;
 
-            if (channelId && messageId) {
-                const channel = await interaction.client.channels.fetch(channelId);
-                const message = await channel.messages.fetch(messageId).catch(() => null);
-
-                if (!message) {
-                    const newEmbed = await this.generateStatsEmbed(guildId);
-                    const sentMessage = await channel.send({ embeds: [newEmbed] });
-
-                    // Store the new message ID
-                    await executeQuery(`
-                        UPDATE player_activity_settings SET message_id = ? WHERE guild_id = ?;
-                    `, [sentMessage.id, guildId]);
-
-                } else {
-                    const updatedEmbed = await this.generateStatsEmbed(guildId);
-                    updatedEmbed.setTimestamp();
-
-                    await message.edit({ embeds: [updatedEmbed] }).catch(console.error);
-                }
+        if (channelId && messageId) {
+            const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+            if (!channel) {
+                return interaction.followUp({ content: "The activity channel no longer exists. Set it again with `/activity channel`.", ephemeral: true });
             }
+
+            const message = await channel.messages.fetch(messageId).catch(() => null);
+
+            if (!message) {
+                const me = interaction.guild.members.me;
+                if (me && !channel.permissionsFor(me)?.has(PermissionsBitField.Flags.SendMessages)) {
+                    return interaction.followUp({ content: "I do not have permission to send messages in the activity channel.", ephemeral: true });
+                }
+
+
+                const newEmbed = await this.generateStatsEmbed(guildId);
+                const sentMessage = await channel.send({ embeds: [newEmbed] });
+
+                // Store the new message ID
+                await executeQuery(`
+                    UPDATE player_activity_settings SET message_id = ? WHERE guild_id = ?;
+                `, [sentMessage.id, guildId]);
+
+            } else {
+                const updatedEmbed = await this.generateStatsEmbed(guildId);
+                updatedEmbed.setTimestamp();
+
+                await message.edit({ embeds: [updatedEmbed] }).catch(console.error);
+            }
+        }
     },
 
     development: false

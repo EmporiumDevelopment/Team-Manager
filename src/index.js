@@ -1,29 +1,28 @@
-import { Client, Events, GatewayIntentBits } from 'discord.js';
+import { Client, Events, GatewayIntentBits, REST, Routes } from 'discord.js';
 import dotenv from 'dotenv';
-import { REST } from '@discordjs/rest';
-import { Routes } from 'discord-api-types/v9';
-import { handleReactionAdd, handleReactionRemove } from "./handlers/scrimReactions.js";
+import { isScrimButton, handleScrimButton } from "./utils/scrimAvailability.js";
 import CommandHandler from './handlers/commandHandler.js';
 import { handleMemberLeave } from './handlers/roster/playerHandler.js';
 import { scheduleScrims } from './utils/scrimScheduler.js';
+import { startTikTokWatcher } from './utils/tiktok/tiktokNotifier.js';
 import { sendLogEmbed } from './utils/logger.js';
 import { executeQuery } from './database.js';
 import "./utils/schedule/scheduleTasks.js"
-import { handleScheduleReactionAdd, handleScheduleReactionRemove } from './handlers/schedule/scheduleAnnouncementReactions.js';
-import { resolveScheduleTeamByMessageId } from './utils/schedule/scheduleUtils.js';
+import { isScheduleButton, handleScheduleButton } from './utils/schedule/scheduleAvailability.js';
 
 dotenv.config({ path: './src/.env' });
 
 const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 const testServerId = process.env.TEST_SERVER_ID;
+const testGuildIds = process.env.TEST_GUILD_IDS ? process.env.TEST_GUILD_IDS.split(',').map(s => s.trim()).filter(Boolean) : (testServerId ? [testServerId] : []);
 
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMembers,
+        // Needed for MessageDelete (roster embed deletion detection). Message
+        // content is never read, so the privileged MessageContent intent isn't requested.
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.GuildMessageReactions,
-        GatewayIntentBits.MessageContent
     ]
 });
 
@@ -31,246 +30,64 @@ client.announcementTypeCache = new Map();
 client.announcementProgressCache = new Map();
 
 const commandHandler = new CommandHandler(client);
-commandHandler.loadCommands();
 
-client.once(Events.ClientReady, async () => {
+// Availability uses buttons, which carry their message with the interaction, so
+// there's no need to pre-fetch scrim/schedule messages into the cache on startup.
+client.once(Events.ClientReady, () => {
     console.log(`Bot is online!`);
-
-    const guilds = client.guilds.cache.map(guild => guild.id);
-
-    for (const guildId of guilds) {
-        
-        if (!guildId) {
-            console.error("Error: guildId is undefined.");
-            continue;
-        }
-
-        const mixedScrimSettings = await executeQuery(`
-            SELECT channel_id, message_id FROM mixed_scrim_settings WHERE guild_id = ?
-        `, [guildId]);
-
-        // cache mixed scrim message if it has been sent
-        if(mixedScrimSettings[0]?.channel_id) {
-
-            try {
-                const mixedScrimChannel = await client.channels.fetch(mixedScrimSettings[0]?.channel_id);
-                
-                // mixed scrim channel is setup
-                if(mixedScrimChannel) {
-
-                    // scrim message is stored
-                    if (mixedScrimSettings[0]?.message_id) {
-                        // cache scrim message so bot can access it
-                        await mixedScrimChannel.messages.fetch(mixedScrimSettings[0]?.message_id).catch(() => null);
-                    }
-                }
-            } catch (error) {
-                console.log(`Failed to fetch mixed scrim message for guild ${guildId}:`, error);
-            }
-        }
-
-        const femaleScrimSettings = await executeQuery(`
-            SELECT channel_id, message_id FROM female_scrim_settings WHERE guild_id = ?
-            `, [guildId]);
-
-        // cache female scrim message if it has been sent
-        if(femaleScrimSettings[0]?.channel_id) {
-
-            try {
-                const femaleScrimChannel = await client.channels.fetch(femaleScrimSettings[0]?.channel_id);
-
-                // female scrim channel is setup
-                if(femaleScrimChannel) {
-
-                    // scrim message is stored
-                    if (femaleScrimSettings[0]?.message_id) {
-                        // cache scrim message so bot can access it
-                        await femaleScrimChannel.messages.fetch(femaleScrimSettings[0]?.message_id).catch(() => null);
-                    }
-                }
-
-            } catch (error) {
-                console.log(`Failed to fetch female scrim message for guild ${guildId}:`, error);
-            }
-        }
-
-        // 🔹 Fetch schedule messages
-
-        // mixed schedule
-        const mixedScheduleSettings = await executeQuery(`
-            SELECT announcement_message_id, announcements_channel_id 
-            FROM mixed_schedule s 
-            JOIN mixed_schedule_settings ss ON s.guild_id = ss.guild_id 
-            WHERE s.announcement_message_id IS NOT NULL;
-        `);
-
-        for (const row of mixedScheduleSettings) {
-            try {
-                const scheduleChannel = await client.channels.fetch(row.announcements_channel_id);
-                if (!scheduleChannel) {
-                    console.error(`Skipping guild: Schedule channel not found for ${row.announcements_channel_id}`);
-                    continue;
-                }
-
-                const scheduleMessage = await scheduleChannel.messages.fetch(row.announcement_message_id).catch(() => null);
-                if (!scheduleMessage) {
-                    console.log(`Skipping schedule message ${row.announcement_message_id}: Message no longer exists.`);
-                    continue;
-                }
-            } catch (error) {
-                console.log(`Failed to fetch schedule message ${row.announcement_message_id}:`, error);
-            }
-        }
-
-        // female schedule
-        const femaleScheduleSettings = await executeQuery(`
-            SELECT announcement_message_id, announcements_channel_id 
-            FROM female_schedule s 
-            JOIN female_schedule_settings ss ON s.guild_id = ss.guild_id 
-            WHERE s.announcement_message_id IS NOT NULL;
-        `);
-
-        for (const row of femaleScheduleSettings) {
-            try {
-                const scheduleChannel = await client.channels.fetch(row.announcements_channel_id);
-                if (!scheduleChannel) {
-                    console.error(`Skipping guild: Schedule channel not found for ${row.announcements_channel_id}`);
-                    continue;
-                }
-
-                const scheduleMessage = await scheduleChannel.messages.fetch(row.announcement_message_id).catch(() => null);
-                if (!scheduleMessage) {
-                    console.log(`Skipping schedule message ${row.announcement_message_id}: Message no longer exists.`);
-                    continue;
-                }
-            } catch (error) {
-                console.log(`Failed to fetch schedule message ${row.announcement_message_id}:`, error);
-            }
-        }
-
-        // clan schedule
-        const clanScheduleSettings = await executeQuery(`
-            SELECT announcement_message_id, announcements_channel_id 
-            FROM clan_schedule s 
-            JOIN clan_schedule_settings ss ON s.guild_id = ss.guild_id 
-            WHERE s.announcement_message_id IS NOT NULL;
-        `);
-
-        for (const row of clanScheduleSettings) {
-            try {
-                const scheduleChannel = await client.channels.fetch(row.announcements_channel_id);
-                if (!scheduleChannel) {
-                    console.error(`Skipping guild: Schedule channel not found for ${row.announcements_channel_id}`);
-                    continue;
-                }
-
-                const scheduleMessage = await scheduleChannel.messages.fetch(row.announcement_message_id).catch(() => null);
-                if (!scheduleMessage) {
-                    console.log(`Skipping schedule message ${row.announcement_message_id}: Message no longer exists.`);
-                    continue;
-                }
-            } catch (error) {
-                console.log(`Failed to fetch schedule message ${row.announcement_message_id}:`, error);
-            }
-        }
-    }
-
     scheduleScrims(client);
+    startTikTokWatcher(client);
 });
+
+// Default settings rows for a newly joined guild. Each insert is independent so one
+// failure doesn't stop the rest.
+const DEFAULT_SETTINGS_TABLES = [
+    "roster_settings",
+    "mixed_scrim_settings",
+    "female_scrim_settings",
+    "clan_scrim_settings",
+    "log_settings",
+    "announcement_settings",
+    "tournament_settings",
+];
 
 client.on("guildCreate", async (guild) => {
-    
+
     console.log(`Joined new guild: ${guild.id} - ${guild.name}, setting up default data in database...`);
-    // Initialize default data for the new guild
 
-    try {
-        await executeQuery(`INSERT INTO roster (guild_id) VALUES (?) ON DUPLICATE KEY UPDATE guild_id = guild_id;`, [guild.id]);
-        await executeQuery(`INSERT INTO roster_settings (guild_id) VALUES (?) ON DUPLICATE KEY UPDATE guild_id = guild_id;`, [guild.id]);
-        await executeQuery(`INSERT INTO scrim_settings (guild_id) VALUES (?) ON DUPLICATE KEY UPDATE guild_id = guild_id;`, [guild.id]);
-        await executeQuery(`INSERT INTO scrim_emojis (guild_id) VALUES (?) ON DUPLICATE KEY UPDATE guild_id = guild_id;`, [guild.id]);
-        await executeQuery(`INSERT INTO log_settings (guild_id) VALUES (?) ON DUPLICATE KEY UPDATE guild_id = guild_id;`, [guild.id]);
-        await executeQuery(`INSERT INTO announcement_settings (guild_id) VALUES (?) ON DUPLICATE KEY UPDATE guild_id = guild_id;`, [guild.id]);
-        await executeQuery(`INSERT INTO tournament_settings (guild_id) VALUES (?) ON DUPLICATE KEY UPDATE guild_id = guild_id;`, [guild.id]);
-
-        console.log(`Default settings applied for guild: ${guild.id}`);
-    } catch (error) {
-        console.error("Error initializing default data:", error);
-    }
-});
-
-client.on(Events.MessageReactionAdd, async (reaction, user) => {
-
-    if (!reaction.message.guild) return; // Ensure it's in a guild
-
-    if(user.bot) return;
-
-    if (reaction.message.partial) {
+    for (const table of DEFAULT_SETTINGS_TABLES) {
         try {
-            await reaction.message.fetch();
-            console.log("Reaction message fetched successfully.");
+            await executeQuery(`INSERT INTO ${table} (guild_id) VALUES (?) ON DUPLICATE KEY UPDATE guild_id = guild_id;`, [guild.id]);
         } catch (error) {
-            console.log("Failed to fetch message:", error);
-            return;
+            console.error(`Error initializing ${table} for guild ${guild.id}:`, error);
         }
     }
 
-    // schedule availability handling
-    const teamContext = await resolveScheduleTeamByMessageId(reaction.message.guild.id, reaction.message.id);
-
-    if(teamContext) {
-        // If the reaction is on a schedule announcement message, handle it
-        return await handleScheduleReactionAdd(reaction, user, teamContext.team);
-    }
-
-    // scrim availability handling
-    await handleReactionAdd(reaction, user);
-});
-
-client.on(Events.MessageReactionRemove, async (reaction, user) => {
-
-    if (!reaction.message.guild || user.bot) return;
-
-    // Fetch message if needed
-    if (reaction.message.partial) {
-        try {
-            await reaction.message.fetch();
-        } catch (error) {
-            console.log("Failed to fetch message:", error);
-            return;
-        }
-    }
-
-    // Schedule availability handling
-    const teamContext = await resolveScheduleTeamByMessageId(reaction.message.guild.id, reaction.message.id);
-
-    if(teamContext) {
-        return await handleScheduleReactionRemove(reaction, user, teamContext.team);
-    }
-
-    // Scrim availability handling
-    await handleReactionRemove(reaction, user);
+    console.log(`Default settings applied for guild: ${guild.id}`);
 });
 
 client.on(Events.MessageDelete, async (message) => {
+    try {
+        if (!message.guild) return; // ignore DM deletions
 
-    const channelIdResult = await executeQuery(`
-        SELECT roster_channel_id FROM channels WHERE guild_id = ?
-    `, [message.guild.id]);
-
-    if (!message.guild || message.channel.id !== channelIdResult[0]?.roster_channel_id) return; // Ensure it's the correct channel
-
-    // Fetch the stored roster_message_id
-    const messageIdResult = await executeQuery(`
-        SELECT roster_message_id FROM channels WHERE guild_id = ?
-    `, [message.guild.id]);
-
-    if (messageIdResult.length > 0 && messageIdResult[0]?.roster_message_id === message.id) {
-        sendLogEmbed(message.guild.id, `Roster embed deleted. Use /roster fix to restore it.`);
-
-        // Update database to remove the stored roster message ID
-        await executeQuery(`
-            UPDATE channels SET roster_message_id = NULL WHERE guild_id = ?
+        // Roster channel + tracked message live in roster_settings, not a
+        // separate "channels" table (which doesn't exist).
+        const rosterSettings = await executeQuery(`
+            SELECT channel_id, message_id FROM roster_settings WHERE guild_id = ?
         `, [message.guild.id]);
+
+        const settings = rosterSettings[0];
+        if (!settings?.channel_id || message.channelId !== settings.channel_id) return;
+
+        // The tracked roster embed was deleted — clear the stored ID and notify.
+        if (settings.message_id && settings.message_id === message.id) {
+            await executeQuery(`
+                UPDATE roster_settings SET message_id = NULL WHERE guild_id = ?
+            `, [message.guild.id]);
+            sendLogEmbed(message.guild.id, `Roster embed deleted. Use /roster fix to restore it.`);
+        }
+    } catch (error) {
+        console.error("Error handling roster message deletion:", error);
     }
 });
 
@@ -279,6 +96,16 @@ client.on(Events.InteractionCreate, async interaction => {
     // Handle slash commands
     if (interaction.isChatInputCommand()) {
         return commandHandler.handleInteraction(interaction);
+    }
+
+    // Handle availability button clicks (scrims + schedule events)
+    if (interaction.isButton()) {
+        try {
+            if (isScrimButton(interaction.customId)) return await handleScrimButton(interaction);
+            if (isScheduleButton(interaction.customId)) return await handleScheduleButton(interaction);
+        } catch (error) {
+            console.error("Error handling button interaction:", error);
+        }
     }
 });
 
@@ -302,9 +129,7 @@ async function setup() {
             .filter(cmd => !cmd.development)
             .map(cmd => cmd.data);
 
-        // Register global commands
         if(globalCommands.length > 0) {
-            // Register global commands
             await rest.put(
                 Routes.applicationCommands(process.env.CLIENT_ID),
                 { body: globalCommands }
@@ -315,27 +140,37 @@ async function setup() {
             .filter(cmd => cmd.development)
             .map(cmd => cmd.data);
 
-        if(guildCommands.length > 0) {
-            console.log('Registering guild commands to test server...');
-
-            // Register development commands
-            await rest.put(
-                Routes.applicationGuildCommands(process.env.CLIENT_ID, testServerId),
-                { body: guildCommands }
-            );
+        if (guildCommands.length > 0) {
+            if (testGuildIds.length === 0) {
+                console.log('No test guild IDs provided; skipping guild command registration.');
+            } else {
+                console.log(`Registering guild commands to ${testGuildIds.length} test guild(s)...`);
+                for (const gid of testGuildIds) {
+                    try {
+                        await rest.put(
+                            Routes.applicationGuildCommands(process.env.CLIENT_ID, gid),
+                            { body: guildCommands }
+                        );
+                        console.log(`Registered guild commands to ${gid}`);
+                    } catch (err) {
+                        console.error(`Failed to register guild commands to ${gid}:`, err);
+                    }
+                }
+            }
         }
     } catch (error) {
         console.error('Command Registration Failed:', error);
     }
 
-    // Ensure bot logs in outside of try/catch block
-    client.login(process.env.TOKEN).then(() => {
-    });
+    await client.login(process.env.TOKEN);
 }
 
-// without this commands dont get registered for some reason
-setTimeout(() => {
-    setup();
-}, 2000); // Delays setup by 2 seconds
+// loadCommands() imports every command file asynchronously; registering before it
+// finished is why commands used to go missing without a startup delay. Not awaited
+// at top level: command modules import this file, and a top-level await here would
+// deadlock that import cycle.
+commandHandler.loadCommands()
+    .then(setup)
+    .catch(error => console.error("Startup failed:", error));
 
 export default client;

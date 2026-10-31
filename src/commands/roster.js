@@ -4,6 +4,8 @@ import { sendLogEmbed } from "../utils/logger.js";
 import COLOUR_VALUES from "../utils/colourMap.js";
 
 import path from "path";
+import { safeReply } from "../utils/interactionReply.js";
+import { cleanPlayerName } from "../utils/playerNames.js";
 
 const imagePath = path.resolve("src", "assets", "roster_image.jpg");
 const imageAttachment = new AttachmentBuilder(imagePath);
@@ -71,6 +73,11 @@ export default {
             subcommand.setName('fix')
                 .setDescription('Resends the roster embed with stored data')
         )
+            // cleanup
+            .addSubcommand(subcommand =>
+                subcommand.setName('cleanup')
+                    .setDescription('Remove roster entries for users who are no longer in the server')
+            )
         // edit
         .addSubcommand(subcommand =>
             subcommand.setName('edit')
@@ -168,7 +175,9 @@ export default {
             const subcommand = interaction.options.getSubcommand();
 
             // Admin Permission Check for sub commands
-            if (["add", "remove", "title", "fix", "edit", "channel", "emojis"].includes(subcommand)) {
+            // Every subcommand changes the roster or posts to it ("role" and "embed" were
+            // previously missing here, letting any member change the auto-assigned roles).
+            if (["add", "remove", "title", "fix", "edit", "channel", "emojis", "cleanup", "role", "embed"].includes(subcommand)) {
                 if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
                     return interaction.reply({ content: "You need **Manage Server** permission to modify the roster!", ephemeral: true });
                 }
@@ -198,7 +207,7 @@ export default {
             }
         
             const rosterChannelId = rosterSettings[0].channel_id;
-            const rosterChannel = await interaction.guild.channels.fetch(rosterChannelId);
+            const rosterChannel = await interaction.guild.channels.fetch(rosterChannelId).catch(() => null);
         
             if (!rosterChannel) {
                 return interaction.reply({ content: "The roster channel no longer exists! Use `/roster channel` again.", ephemeral: true });
@@ -216,6 +225,8 @@ export default {
                 await this.editRosterMember(interaction);
             } else if (subcommand === 'emojis') {
                 await this.setRosterEmojis(interaction);
+                } else if (subcommand === 'cleanup') {
+                    await this.cleanupRoster(interaction);
             } else if (subcommand === 'role') {
                 await this.setRole(interaction);
             }
@@ -280,39 +291,52 @@ export default {
                 // Log the addition
                 await sendLogEmbed(
                     guildId, 
-                    `**Roster Addition**\n\nA new player has been added to the roster\n\n**Player:** ${user}\n\n**Role:** ${userRole}\n**By:** <@${interaction.user.id}>.`
+                    `**Roster Addition**\n\nA new player has been added to the roster\n\n**Player:** ${cleanPlayerName(playerName)}\n\n**Role:** ${userRole}\n**By:** <@${interaction.user.id}>.`
                     , COLOUR_VALUES.ADD
                 );
                 await interaction.reply({ content: `<@${user.id}> has been added to the roster as ${level}!`, ephemeral: true });
 
                 // give player role
-                const rosterSettings = await executeQuery(`
-                    SELECT owner_role_id, leader_role_id, elite_role_id, member_role_id
-                    FROM roster_settings
-                    WHERE guild_id = ?;
-                `, [interaction.guild.id]);
+                const roleError = await this.syncLevelRole(interaction.guild, user.id, null, level);
+                if (roleError) await safeReply(interaction, roleError);
 
-                const roleIdMap = {
-                    owner: rosterSettings[0].owner_role_id,
-                    leader: rosterSettings[0].leader_role_id,
-                    elite: rosterSettings[0].elite_role_id,
-                    member: rosterSettings[0].member_role_id
-                };
-
-                const roleIdToAssign = roleIdMap[level];
-
-                const member = await interaction.guild.members.fetch(user.id);
-                const role = interaction.guild.roles.cache.get(roleIdToAssign);
-
-                if (role && member) {
-                    await member.roles.add(role);
-                }
-        
                 // Update the roster embed
                 await this.updateRosterEmbed(interaction);
             } catch (error) {
                 console.error("Error adding player:", error);
-                await interaction.reply({ content: "An error occurred while adding this player.", ephemeral: true });
+                await safeReply(interaction, "An error occurred while adding this player.");
+            }
+        },
+
+        // Swaps the Discord role tied to a roster level (owner/leader/elite/member).
+        // Pass oldLevel = null when adding, newLevel = null when removing. Returns a
+        // user-facing warning string if the role change failed, otherwise null.
+        async syncLevelRole(guild, userId, oldLevel, newLevel) {
+            const rosterSettings = await executeQuery(`
+                SELECT owner_role_id, leader_role_id, elite_role_id, member_role_id
+                FROM roster_settings
+                WHERE guild_id = ?;
+            `, [guild.id]);
+
+            const settings = rosterSettings[0] || {};
+            const roleIdFor = level => level ? settings[`${level}_role_id`] : null;
+
+            const member = await guild.members.fetch(userId).catch(() => null);
+            if (!member) return null; // user left the server — nothing to change
+
+            try {
+                const oldRoleId = roleIdFor(oldLevel);
+                const newRoleId = roleIdFor(newLevel);
+                if (oldRoleId && oldRoleId !== newRoleId && member.roles.cache.has(oldRoleId)) {
+                    await member.roles.remove(oldRoleId);
+                }
+                if (newRoleId && guild.roles.cache.has(newRoleId)) {
+                    await member.roles.add(newRoleId);
+                }
+                return null;
+            } catch (error) {
+                console.error(`Failed to update roster role for ${userId} in guild ${guild.id}:`, error);
+                return "The roster was updated, but I couldn't change their Discord role. Make sure my role is above the roster roles and I have **Manage Roles**.";
             }
         },
         
@@ -336,35 +360,10 @@ export default {
                     return interaction.reply({ content: `<@${user.id}> is not in the roster!`, ephemeral: true });
                 }
 
-                // Remove the role from the user
-                const playerData = await executeQuery(`
-                    SELECT member_level
-                    FROM roster
-                    WHERE discord_id = ? AND guild_id = ?;
-                `, [user.id, interaction.guild.id]);
+                // Remove the role from the user (skipped if they already left the server,
+                // which used to throw and leave them stuck on the roster)
+                const roleError = await this.syncLevelRole(interaction.guild, user.id, rosterRows[0].member_level, null);
 
-                const rosterSettings = await executeQuery(`
-                    SELECT owner_role_id, leader_role_id, elite_role_id, member_role_id
-                    FROM roster_settings
-                    WHERE guild_id = ?;
-                `, [interaction.guild.id]);
-
-                const roleIdMap = {
-                    owner: rosterSettings[0].owner_role_id,
-                    leader: rosterSettings[0].leader_role_id,
-                    elite: rosterSettings[0].elite_role_id,
-                    member: rosterSettings[0].member_role_id
-                };
-
-                const roleIdToRemove = roleIdMap[playerData[0].member_level];
-
-                const member = await interaction.guild.members.fetch(user.id);
-                const role = interaction.guild.roles.cache.get(roleIdToRemove);
-
-                if (role && member) {
-                    await member.roles.remove(role);
-                }
-        
                 // Remove the player from the roster
                 await executeQuery(`
                     DELETE FROM roster WHERE discord_id = ? AND guild_id = ?
@@ -373,127 +372,102 @@ export default {
                 // Log the removal
                 await sendLogEmbed(
                     guildId, 
-                    `**Roster Removal**\n\nA Player has been removed from the roster\n\n**Player:** ${user} \n**By:** <@${interaction.user.id}>.`, 
+                    `**Roster Removal**\n\nA Player has been removed from the roster\n\n**Player:** ${cleanPlayerName(rosterRows[0].player_name) || user.username}\n**By:** <@${interaction.user.id}>.`, 
                     COLOUR_VALUES.REMOVE
                 );
                 await interaction.reply({ content: `<@${user.id}> has been removed from the roster.`, ephemeral: true });
+                if (roleError) await safeReply(interaction, roleError);
 
                 // Update the roster embed
                 await this.updateRosterEmbed(interaction);
             } catch (error) {
                 console.error("Error removing player:", error);
-                await interaction.reply({ content: "An error occurred while removing this player.", ephemeral: true });
+                await safeReply(interaction, "An error occurred while removing this player.");
             }
         },
         
+        // Builds the roster embed from the database.
+        async buildRosterEmbed(guildId) {
+
+            const [settings] = await executeQuery(`
+                SELECT embed_title, owner_emoji, leader_emoji, elite_emoji, member_emoji
+                FROM roster_settings WHERE guild_id = ?
+            `, [guildId]);
+
+            const rosterPlayers = await executeQuery(`
+                SELECT player_name, member_level, flag_emoji FROM roster
+                WHERE guild_id = ? ORDER BY FIELD(member_level, "owner", "leader", "elite", "member")
+            `, [guildId]);
+
+            const roleEmojis = {
+                owner: settings?.owner_emoji || '',
+                leader: settings?.leader_emoji || '',
+                elite: settings?.elite_emoji || '',
+                member: settings?.member_emoji || ''
+            };
+
+            let description = rosterPlayers.length === 0
+                ? '**No players have been added yet!**\n\nUse `/roster add` to add a player.\nUse `/roster remove` to remove a player.\nUse `/roster title` to change the roster title.\n\nYour roster will update here as changes are made.'
+                : '';
+
+            const roles = { owner: '**OWNER**', leader: '**LEADER**', elite: '**ELITE MEMBER**', member: '**MEMBER**' };
+            for (const role of Object.keys(roles)) {
+                const rolePlayers = rosterPlayers.filter(p => p.member_level === role);
+                if (rolePlayers.length > 0) {
+                    description += `\n\n${roles[role]}\n`;
+                    description += rolePlayers.map(player => ` ${roleEmojis[role]} | ${player.flag_emoji} | ${player.player_name}`).join('\n') + '\n';
+                }
+            }
+
+            return new EmbedBuilder()
+                .setTitle(settings?.embed_title || "Team Roster")
+                .setColor(0xFFFFFF)
+                .setDescription(description.slice(0, 4096))
+                .setFooter({ text: `Last updated: ${new Date().toLocaleString("en-GB", { timeZone: "Europe/London" })}` });
+        },
+
+        // Edits the stored roster message, or sends a new one if it is missing/deleted.
+        // Never replies to the interaction (refreshRosterEmbed passes a stub). Returns
+        // a problem description string, or null on success.
         async updateRosterEmbed(interaction) {
 
-            const client = interaction.client;
-            const guildId = interaction.guild.id;
-            const serverName = interaction.guild.name;
+            const guild = interaction.guild;
+            const guildId = guild.id;
 
             try {
-
-                // 🔹 Fetch stored embed message ID
-                const rosterSettings = await executeQuery(`
+                const [settings] = await executeQuery(`
                     SELECT message_id, channel_id FROM roster_settings WHERE guild_id = ?
                 `, [guildId]);
 
-                if(rosterSettings.length === 0) {
-                    console.error(`No roster settings found in the database for server: ${serverName} ID: ${guildId}`);
-                    return;
-                }
-        
-                if (!rosterSettings[0]?.channel_id) {
-                    console.error(`No roster channel found in the database for server: ${serverName} ID: ${guildId}`);
-                    return;
-                }
+                if (!settings?.channel_id) return "No roster channel set. Use `/roster channel` first.";
 
-                // 🔹 Fetch the roster channel
-                // If channel_id is not set, log an error and return
-                const rosterChannelId = rosterSettings.length > 0 ? rosterSettings[0].channel_id : null;
-                if (!rosterChannelId) {
-                    console.error(`No roster channel ID found in the database for server: ${serverName} ID: ${guildId}`);
-                    return;
-                }
+                const rosterChannel = await guild.channels.fetch(settings.channel_id).catch(() => null);
+                if (!rosterChannel) return "The roster channel no longer exists. Use `/roster channel` again.";
 
-                // Fetch the roster channel using the ID
-                const rosterChannel = await client.channels.fetch(rosterChannelId).catch(error => {
-                    console.error(`Error fetching roster channel for server: ${serverName} ID: ${guildId}`, error);
-                    return null;
-                });
+                const rosterEmbed = await this.buildRosterEmbed(guildId);
 
-                if(!rosterSettings[0]?.message_id) {
-                    console.error(`No roster message ID found in the database for server: ${serverName} ID: ${guildId}`);
-                    return;
-                }
+                const rosterMessage = settings.message_id
+                    ? await rosterChannel.messages.fetch(settings.message_id).catch(() => null)
+                    : null;
 
-                // fetch the roster message ID from the database
-                const rosterMessageId = rosterSettings.length > 0 ? rosterSettings[0].message_id : null;
-                let rosterMessage = rosterMessageId ? await rosterChannel.messages.fetch(rosterMessageId).catch(error => {
-                    console.error(`Error fetching roster message for server: ${serverName} ID: ${guildId}`, error);
-                    return null;
-                }) : null;
-
-                // 🔹 Fetch stored embed title
-                const titleRow = await executeQuery(`
-                    SELECT embed_title FROM roster_settings WHERE guild_id = ?
-                `, [guildId]);
-                
-                // If no title is set, use a default title
-                const embedTitle = titleRow.length > 0 ? titleRow[0]?.embed_title : "Team Roster";
-                
-                // 🔹 Retrieve and format player data
-                const rosterPlayers = await executeQuery(`
-                    SELECT * FROM roster WHERE guild_id = ? ORDER BY FIELD(member_level, "owner", "leader", "elite", "member")
-                `, [guildId]);
-        
-                const emojiSettings = await executeQuery(`
-                    SELECT owner_emoji, leader_emoji, elite_emoji, member_emoji FROM roster_settings WHERE guild_id = ?
-                `, [guildId]);
-
-                const roleEmojis = {
-                    owner: emojiSettings[0]?.owner_emoji || '',
-                    leader: emojiSettings[0]?.leader_emoji || '',
-                    elite: emojiSettings[0]?.elite_emoji || '',
-                    member: emojiSettings[0]?.member_emoji || ''
-                };
-
-                let description = rosterPlayers.length === 0 
-                ? '**No players have been added yet!**\n\nUse `/roster add` to add a player.\nUse `/roster remove` to remove a player.\nUse `/roster title` to change the roster title.\n\nYour roster will update here as changes are made.'
-                : '';
-        
-                if (rosterPlayers.length > 0) {
-                    const roles = { owner: '**OWNER**', leader: '**LEADER**', elite: '**ELITE MEMBER**', member: '**MEMBER**' };
-                    for (const role of Object.keys(roles)) {
-                        const rolePlayers = rosterPlayers.filter(p => p.member_level === role);
-                        if (rolePlayers.length > 0) {
-                            description += `\n\n${roles[role]}\n`;
-                            description += rolePlayers.map(player => ` ${roleEmojis[role]} | ${player.flag_emoji} | ${player.player_name}`).join('\n') + '\n';
-                        }
-                    }
-                }
-        
-                const rosterEmbed = new EmbedBuilder()
-                    .setTitle(embedTitle)
-                    .setColor(0xFFFFFF)
-                    .setDescription(description)
-                    .setFooter({ text: `Last updated: ${new Date().toLocaleString()}` });
-        
-                // Ensure the existing embed is updated instead of sending a new one
                 if (rosterMessage) {
                     await rosterMessage.edit({ embeds: [rosterEmbed] });
-                } else {
-                    rosterMessage = await rosterChannel.send({ embeds: [rosterEmbed] });
-        
-                    if (rosterMessage) {
-                        await executeQuery(`
-                            UPDATE roster_settings SET message_id = ? WHERE guild_id = ?
-                        `, [rosterMessage.id, guildId]);
-                    }
+                    return null;
                 }
+
+                const me = guild.members.me;
+                if (me && !rosterChannel.permissionsFor(me)?.has(PermissionsBitField.Flags.SendMessages)) {
+                    return "I do not have permission to send messages in the roster channel.";
+                }
+
+                const newMessage = await rosterChannel.send({ embeds: [rosterEmbed] });
+                await executeQuery(`
+                    UPDATE roster_settings SET message_id = ? WHERE guild_id = ?
+                `, [newMessage.id, guildId]);
+                return null;
             } catch (error) {
-                console.error(`Error updating roster for server: ${serverName} ID: ${guildId}`, error);
+                console.error(`Error updating roster for server: ${guild.name} ID: ${guildId}`, error);
+                return "Failed to update the roster embed.";
             }
         },
 
@@ -539,114 +513,42 @@ export default {
                 }
             } catch (error) {
                 console.error(`Failed to set roster title for server: ${serverName} ID: ${guildId}:`, error);
-                return interaction.reply({ content: "An error occurred while setting the roster title.", ephemeral: true });
+                return safeReply(interaction, "An error occurred while setting the roster title.");
             }
         },
 
+        // Deletes the current roster message (if any) and posts a fresh one.
         async fixRosterEmbed(interaction) {
 
-            const serverName = interaction.guild.name;
-            const guildId = interaction.guild.id;
+            const guild = interaction.guild;
+            const guildId = guild.id;
 
-            try {
-                const channelRows = await executeQuery(`
-                    SELECT * FROM roster_settings WHERE guild_id = ?
-                `, [guildId]);
+            await interaction.deferReply({ ephemeral: true });
 
-                if(channelRows.length === 0) {
-                    // Initialize roster settings if not present
-                    await executeQuery(`
-                        INSERT INTO roster_settings (guild_id) VALUES (?)
-                    `, [guildId]);
-                    console.log(`No roster settings found for guild: ${guildId}. Initialized default settings.`);
-                }
+            const [settings] = await executeQuery(`
+                SELECT channel_id, message_id FROM roster_settings WHERE guild_id = ?
+            `, [guildId]);
 
-                if(!channelRows[0]?.channel_id) {
-                    console.error(`No roster channel found in the database for server: ${serverName} ID: ${guildId}`);
-                    return interaction.reply({ content: "No roster channel found! Use `/roster channel` first.", ephemeral: true });
-                }
-
-                // Fetch the roster channel using the ID
-                const channel = interaction.guild.channels.cache.get(channelRows[0].channel_id);
-                if (!channel) {
-                    return interaction.reply({ content: "Roster channel is invalid or missing.", ephemeral: true });
-                }
-
-                // Check if an existing roster message exists and delete it
-                if (channelRows[0]?.message_id) {
-                    try {
-                        const oldMessage = await channel.messages.fetch(channelRows[0]?.message_id);
-                        await oldMessage.delete();
-                        console.log("Old roster embed deleted.");
-                    } catch (error) {
-                        console.error(`Failed to delete previous roster embed for server: ${serverName} ID: ${guildId}`, error);
-                    }
-                }
-
-                // Fetch stored roster data sorted by hierarchy
-                const rosterData = await executeQuery(`
-                    SELECT player_name, member_level, flag_emoji 
-                    FROM roster 
-                    WHERE guild_id = ? 
-                    ORDER BY FIELD(member_level, 'owner', 'leader', 'elite', 'member')
-                `, [guildId]);
-
-                if (!rosterData.length) {
-                    return interaction.reply({ content: "No players found in the roster!", ephemeral: true });
-                }
-
-                const emojiSettings = await executeQuery(`
-                    SELECT owner_emoji, leader_emoji, elite_emoji, member_emoji FROM roster_settings WHERE guild_id = ?
-                `, [guildId]);
-
-                const roleEmojis = {
-                    owner: emojiSettings[0]?.owner_emoji || '',
-                    leader: emojiSettings[0]?.leader_emoji || '',
-                    elite: emojiSettings[0]?.elite_emoji || '',
-                    member: emojiSettings[0]?.member_emoji || ''
-                };
-
-                let description = "";
-
-                if (rosterData.length > 0) {
-                    const roles = { owner: '**OWNER**', leader: '**LEADER**', elite: '**ELITE MEMBER**', member: '**MEMBER**' };
-                    for (const role of Object.keys(roles)) {
-                        const rolePlayers = rosterData.filter(p => p.member_level === role);
-                        if (rolePlayers.length > 0) {
-                            description += `\n\n${roles[role]}\n`;
-                            description += rolePlayers.map(player => ` ${roleEmojis[role]} | ${player.flag_emoji} | ${player.player_name}`).join('\n') + '\n';
-                        }
-                    }
-                }
-        
-                const extraRosterData = await executeQuery(`
-                    SELECT embed_title FROM roster_settings WHERE guild_id = ?
-                `, [guildId]);
-
-                // Use stored embed title
-                const embed = {
-                    title: extraRosterData[0]?.embed_title || "Team Roster",
-                    description,
-                    color: 0xFFFFFF,
-                };
-
-                const message = await channel.send({ embeds: [embed] });
-
-                // Store the new message ID
-                await executeQuery(`
-                    UPDATE roster_settings SET message_id = ? WHERE guild_id = ?
-                `, [message.id, guildId]);
-
-                sendLogEmbed(
-                    guildId, 
-                    `**Roster restoration**\n\nThe roster has been restored\n\n**By:** <@${interaction.user.id}>.`, 
-                    COLOUR_VALUES.ADD
+            if (settings?.channel_id && settings?.message_id) {
+                const channel = await guild.channels.fetch(settings.channel_id).catch(() => null);
+                const oldMessage = channel ? await channel.messages.fetch(settings.message_id).catch(() => null) : null;
+                await oldMessage?.delete().catch(error =>
+                    console.error(`Failed to delete previous roster embed for server: ${guild.name} ID: ${guildId}`, error)
                 );
-                return interaction.reply({ content: "Roster has been restored", ephemeral: true });
-            } catch (error) {
-                console.error(`Failed to fix roster for server: ${serverName} ID: ${guildId}:`, error);
-                return interaction.reply({ content: "An error occurred while fixing the roster.", ephemeral: true });
+                await executeQuery(`UPDATE roster_settings SET message_id = NULL WHERE guild_id = ?`, [guildId]);
             }
+
+            const problem = await this.updateRosterEmbed(interaction);
+            if (problem) {
+                return interaction.editReply({ content: problem });
+            }
+
+            sendLogEmbed(
+                guildId,
+                `**Roster restoration**\n\nThe roster has been restored\n\n**By:** <@${interaction.user.id}>.`,
+                COLOUR_VALUES.ADD
+            );
+            return interaction.editReply({ content: "Roster has been restored" });
         },
 
         async editRosterMember(interaction) {
@@ -684,10 +586,18 @@ export default {
                     return interaction.reply({ content: `This user is not in the roster.`, ephemeral: true });
                 }
 
+                const storedValue = field === 'member_level' ? newValue.toLowerCase() : newValue;
+
                 // Update the field in the database
                 await executeQuery(`
                     UPDATE roster SET ${field} = ? WHERE discord_id = ? AND guild_id = ?
-                `, [newValue, user.id, guildId]);
+                `, [storedValue, user.id, guildId]);
+
+                // A level change also swaps their Discord role (previously only the
+                // roster text changed, leaving the old role in place).
+                const roleError = field === 'member_level'
+                    ? await this.syncLevelRole(interaction.guild, user.id, rosterRows[0].member_level, storedValue)
+                    : null;
 
                 // Update the roster embed with the new value
                 await this.updateRosterEmbed(interaction);
@@ -695,18 +605,18 @@ export default {
                 // log
                 await sendLogEmbed(
                     guildId, 
-                    `**Roster Player Adjustment**\n\nA player on the roster has been edited\n\n**Player:** ${user.username}\n**Field:** ${field}\n**New Value:** ${newValue}\n**By:** <@${interaction.user.id}>.`, 
+                    `**Roster Player Adjustment**\n\nA player on the roster has been edited\n\n**Player:** ${cleanPlayerName(rosterRows[0].player_name) || user.username}\n**Field:** ${field}\n**New Value:** ${newValue}\n**By:** <@${interaction.user.id}>.`, 
                     COLOUR_VALUES.ADD
                 );
 
                 // Log the edit
-                return interaction.reply({ 
-                    content: `Updated **${field}** for **${user.username}** to \`${newValue}\`.`, 
-                    ephemeral: true 
+                return interaction.reply({
+                    content: `Updated **${field}** for **${user.username}** to \`${storedValue}\`.${roleError ? `\n${roleError}` : ""}`,
+                    ephemeral: true
                 });
-                } catch (error) {
+            } catch (error) {
                 console.error(`Failed to edit roster for server: ${serverName} ID: ${guildId}:`, error);
-                return interaction.reply({ content: "An error occurred while editing the roster.", ephemeral: true });
+                return safeReply(interaction, "An error occurred while editing the roster.");
             }
         },
 
@@ -950,6 +860,95 @@ export default {
             };
 
             await this.updateRosterEmbed(interaction);
+        },
+
+        async cleanupRoster(interaction) {
+            const guild = interaction.guild;
+            const guildId = guild.id;
+
+            try {
+                if (!interaction.deferred && !interaction.replied) {
+                    await interaction.deferReply({ ephemeral: true });
+                }
+
+                const rosterRows = await executeQuery(
+                    `SELECT discord_id, player_name FROM roster WHERE guild_id = ?`,
+                    [guildId]
+                );
+
+                if (!rosterRows.length) {
+                    return interaction.editReply({ content: "No players found in the roster." });
+                }
+
+                // Fetch every member. If this THROWS, abort — do not delete on partial data.
+                let allMembers;
+                try {
+                    allMembers = await guild.members.fetch();
+                } catch (err) {
+                    console.error("Bulk member fetch failed — is the GuildMembers intent enabled?", err);
+                    return interaction.editReply({
+                        content: "Couldn't fetch the member list, so cleanup was cancelled to avoid removing active players. Make sure the **Server Members Intent** is enabled.",
+                    });
+                }
+
+                // Sanity check: if we fetched fewer members than the guild claims to have,
+                // the list is incomplete — bail rather than risk a mass deletion.
+                if (allMembers.size < guild.memberCount) {
+                    console.error(`Fetched ${allMembers.size} members but guild has ${guild.memberCount}. Aborting cleanup.`);
+                    return interaction.editReply({
+                        content: `Member list looks incomplete (${allMembers.size}/${guild.memberCount} fetched), so cleanup was cancelled to be safe. Check the GuildMembers intent and try again.`,
+                    });
+                }
+
+                const removed = [];
+                let skippedNoId = 0;
+                for (const row of rosterRows) {
+                    // Rows without a stored discord_id can't be checked against the
+                    // member list — skip them rather than delete on missing data.
+                    if (!row.discord_id) {
+                        skippedNoId++;
+                        continue;
+                    }
+                    const id = String(row.discord_id); // guard against snowflake precision loss
+                    if (!allMembers.has(id)) {
+                        removed.push({ id, name: row.player_name });
+                    }
+                }
+                if (skippedNoId > 0) {
+                    console.warn(`Skipped ${skippedNoId} roster row(s) with no discord_id during cleanup.`);
+                }
+
+                if (removed.length === 0) {
+                    return interaction.editReply({ content: "No absent members were found in the roster." });
+                }
+
+                const ids = removed.map(r => r.id);
+                const placeholders = ids.map(() => '?').join(', ');
+                await executeQuery(
+                    `DELETE FROM roster WHERE guild_id = ? AND discord_id IN (${placeholders})`,
+                    [guildId, ...ids]
+                );
+
+                const removedList = removed.map(r => cleanPlayerName(r.name) || r.id).join('\n');
+                await sendLogEmbed(
+                    guildId,
+                    `**Roster Cleanup**\n\nRemoved ${removed.length} absent player(s):\n${removedList}\n\n**By:** <@${interaction.user.id}>.`,
+                    COLOUR_VALUES.REMOVE
+                );
+
+                try {
+                    await this.updateRosterEmbed(interaction);
+                } catch (err) {
+                    console.error('Failed to update roster embed after cleanup:', err);
+                }
+
+                return interaction.editReply({ content: `Removed ${removed.length} absent player(s) from the roster.` });
+            } catch (error) {
+                console.error(`Error cleaning up roster for guild ID: ${guildId}`, error);
+                if (interaction.deferred || interaction.replied) {
+                    await interaction.editReply({ content: "An error occurred while cleaning up the roster." }).catch(() => {});
+                }
+            }
         },
 
         development: false,

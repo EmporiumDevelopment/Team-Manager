@@ -2,6 +2,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs';
 import { sendScrimEmbedMixed } from "../utils/scrimScheduler.js";
+import { safeReply } from "../utils/interactionReply.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -44,6 +45,7 @@ class CommandHandler {
             await command.execute(interaction, this);
         } catch (error) {
             console.error(`Error executing command ${interaction.commandName}:`, error);
+            await safeReply(interaction, "Something went wrong running that command. The error has been logged.");
         }
     }
 }

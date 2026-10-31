@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>TikTok Connected — Team Manager</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+<p class="eyebrow">Team Manager · 6pm Esports</p>
+<h1 id="heading">Almost done</h1>
+
+<!-- This page only displays its own address so it can be pasted into Discord.
+     Nothing is sent anywhere; the bot exchanges the code itself. -->
+<div id="ok" hidden>
+  <p>Copy the address below and run <code>/tiktok connect</code> in Discord, pasting it into the <code>redirect-url</code> option.</p>
+  <textarea id="url" readonly rows="5"></textarea>
+  <p><button id="copy" type="button">Copy address</button> <span id="copied" class="muted" hidden>Copied!</span></p>
+  <p class="muted">The code inside expires within a few minutes and works once — if it fails, run <code>/tiktok connect</code> again for a new link.</p>
+</div>
+
+<div id="err" hidden>
+  <p>TikTok didn't connect: <strong id="errmsg"></strong></p>
+  <p>Run <code>/tiktok connect</code> in Discord to try again.</p>
+</div>
+
+<div id="none" hidden>
+  <p>This page is used when connecting a TikTok account to the Team Manager Discord bot. Start from <code>/tiktok connect</code> in Discord.</p>
+</div>
+
+<p class="footer"><a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Service</a></p>
+</main>
+<script>
+  const params = new URLSearchParams(location.search);
+  const show = id => { document.getElementById(id).hidden = false; };
+  if (params.get("code")) {
+    show("ok");
+    const box = document.getElementById("url");
+    box.value = location.href;
+    document.getElementById("copy").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(location.href); }
+      catch { box.select(); document.execCommand("copy"); }
+      document.getElementById("copied").hidden = false;
+    });
+  } else if (params.get("error")) {
+    document.getElementById("heading").textContent = "Connection failed";
+    document.getElementById("errmsg").textContent = params.get("error_description") || params.get("error");
+    show("err");
+  } else {
+    document.getElementById("heading").textContent = "TikTok connection";
+    show("none");
+  }
+</script>
+</body>
+</html>

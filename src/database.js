@@ -12,7 +12,11 @@ const db = mysql.createPool({
             connectionLimit: 10,
             queueLimit: 0,
             connectTimeout: 10000,
-            multipleStatements: true,
+            // Discord snowflakes are 64-bit ints that exceed JS's safe integer
+            // range. Return BIGINT/DECIMAL columns as strings so IDs keep full
+            // precision instead of being silently rounded (…475648 -> …475600).
+            supportBigNumbers: true,
+            bigNumberStrings: true,
 });
 
 async function executeQuery(sql, params = []) {
@@ -35,6 +39,24 @@ async function executeQuery(sql, params = []) {
         }
     }
     throw new Error("Database connection failed after multiple attempts.");
+}
+
+// Runs fn(conn) inside a transaction on ONE dedicated connection. Pool queries
+// (executeQuery) can land on different connections, so START TRANSACTION / COMMIT
+// sent through executeQuery doesn't actually group anything.
+async function withTransaction(fn) {
+    const conn = await db.getConnection();
+    try {
+        await conn.beginTransaction();
+        const result = await fn(conn);
+        await conn.commit();
+        return result;
+    } catch (error) {
+        await conn.rollback().catch(() => {});
+        throw error;
+    } finally {
+        conn.release();
+    }
 }
 
 async function initializeDatabase() {
@@ -72,16 +94,6 @@ async function initializeDatabase() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
-        // Create `scrim_emojis` table
-        await db.execute(`
-            CREATE TABLE IF NOT EXISTS scrim_emojis (
-                guild_id VARCHAR(255) PRIMARY KEY,
-                emoji_16 VARCHAR(50) NOT NULL,
-                emoji_20 VARCHAR(50) NOT NULL,
-                emoji_23 VARCHAR(50) NOT NULL
-            );
-        `);
-
         // Create `scrim_settings` table
         await db.execute(`
             CREATE TABLE IF NOT EXISTS mixed_scrim_settings (
@@ -113,7 +125,22 @@ async function initializeDatabase() {
                 channel_id VARCHAR(255) DEFAULT NULL,
                 message_id VARCHAR(255) DEFAULT NULL,
                 is_enabled BOOLEAN DEFAULT FALSE
-            )    
+            )
+        `);
+
+        // Tracks who clicked which scrim availability button. One row per
+        // (message, slot, user); the embed is rebuilt from this table so state
+        // is authoritative instead of being parsed out of the embed text.
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS scrim_availability (
+                guild_id VARCHAR(255) NOT NULL,
+                message_id VARCHAR(255) NOT NULL,
+                slot VARCHAR(10) NOT NULL,
+                user_id VARCHAR(30) NOT NULL,
+                display_name VARCHAR(255) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (message_id, slot, user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
         // Create `log_settings` table
@@ -231,14 +258,20 @@ async function initializeDatabase() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
+        // NOTE: the key is (guild_id, user_id) — with guild_id alone as the PK, every
+        // player in a guild collided onto one row via ON DUPLICATE KEY UPDATE, so the
+        // leaderboard could only ever hold a single player. Existing databases need a
+        // one-time migration (see README) since CREATE TABLE IF NOT EXISTS won't alter
+        // a table that already exists.
         await db.execute(`
             CREATE TABLE IF NOT EXISTS player_activity (
-                guild_id VARCHAR(255) PRIMARY KEY,
-                user_id VARCHAR(30) DEFAULT NULL,
+                guild_id VARCHAR(255) NOT NULL,
+                user_id VARCHAR(30) NOT NULL,
                 games_played INT DEFAULT 0,
                 wins INT DEFAULT 0,
                 total_points INT DEFAULT 0,
-                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (guild_id, user_id)
             );
         `);
 
@@ -319,6 +352,31 @@ async function initializeDatabase() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
 
+        // TikTok upload notifications (one connected TikTok account per guild).
+        // *_expires_at / last_checked_at are JS millisecond timestamps;
+        // last_video_time is the TikTok create_time (unix seconds) of the newest
+        // video already announced.
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS tiktok_settings (
+                guild_id VARCHAR(255) PRIMARY KEY,
+                channel_id VARCHAR(255) DEFAULT NULL,
+                role_id VARCHAR(255) DEFAULT NULL,
+                is_enabled BOOLEAN DEFAULT FALSE,
+                announcement_message VARCHAR(1000) DEFAULT NULL,
+                open_id VARCHAR(255) DEFAULT NULL,
+                display_name VARCHAR(255) DEFAULT NULL,
+                access_token TEXT DEFAULT NULL,
+                access_expires_at BIGINT DEFAULT NULL,
+                refresh_token TEXT DEFAULT NULL,
+                refresh_expires_at BIGINT DEFAULT NULL,
+                needs_reconnect BOOLEAN DEFAULT FALSE,
+                oauth_state VARCHAR(64) DEFAULT NULL,
+                oauth_state_expires_at BIGINT DEFAULT NULL,
+                last_video_time BIGINT DEFAULT 0,
+                last_checked_at BIGINT DEFAULT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        `);
+
     } catch (error) {
         console.error("Database connection failed:", error);
         process.exit(1);
@@ -329,4 +387,4 @@ async function initializeDatabase() {
     await initializeDatabase();
 })();
 
-export { db, executeQuery };
+export { db, executeQuery, withTransaction };

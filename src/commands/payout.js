@@ -1,6 +1,11 @@
-import { PermissionsBitField, SlashCommandBuilder } from "discord.js";
-import { executeQuery } from "../database.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, PermissionsBitField, SlashCommandBuilder } from "discord.js";
+import { executeQuery, withTransaction } from "../database.js";
 import earnings from "./earnings.js";
+import { sendLogEmbed } from "../utils/logger.js";
+import COLOUR_VALUES from "../utils/colourMap.js";
+import { getPlayerNames } from "../utils/playerNames.js";
+
+const CONFIRM_TIMEOUT_MS = 60_000;
 
 export default {
     data: new SlashCommandBuilder()
@@ -21,85 +26,130 @@ export default {
 
         await interaction.deferReply({ ephemeral: true });
 
-        const earningsSettings = await executeQuery(`
-            SELECT channel_id, message_id FROM earnings_settings WHERE guild_id = ?;
-        `, [interaction.guild.id]);
+        const guildId = interaction.guild.id;
+        const plan = await this.buildPayoutPlan(guildId);
 
-        if (earningsSettings.length === 0) {
-            return interaction.editReply({ content: "Earnings channel is not set up. Please set it up first.", ephemeral: true });
-        }
-
-        const channelId = earningsSettings[0].channel_id;
-        const messageId = earningsSettings[0].message_id;
-        const channel = await interaction.guild.channels.fetch(channelId);
-
-        if (!channel) {
-            return interaction.editReply({ content: "Could not find the earnings channel. Please check the setup.", ephemeral: true });
-        }
-
-        const message = await channel.messages.fetch(messageId);
-        if (!message) {
-            return interaction.editReply({ content: "Could not find the earnings message. Please check the setup.", ephemeral: true });
-        }
-
-        await interaction.editReply("Initiating payout process...");
-
-        const unpaidEarnings = await executeQuery(`
-            SELECT * FROM earnings WHERE guild_id = ? AND paid_out = 0
-            `, [interaction.guild.id]);
-
-        if (unpaidEarnings.length === 0) {
+        if (plan.earnings.length === 0 && plan.skipped.length === 0) {
             return interaction.editReply("There are no unpaid earnings to process for payout.");
         }
 
-        let payoutAmount = 0;
-        let playerData = [];
+        const skippedNote = plan.skipped.length
+            ? `\n\n⚠ Skipping ${plan.skipped.length} earning(s) with no players linked (IDs: ${plan.skipped.join(", ")}). Remove and re-add them with players to pay them out.`
+            : "";
 
-        for (const earning of unpaidEarnings) {
-            const netAmount = parseFloat(earning.amount) - parseFloat(earning.slot_cost);
-            payoutAmount += netAmount;
+        if (plan.earnings.length === 0) {
+            return interaction.editReply(`Nothing can be paid out.${skippedNote}`);
+        }
 
-            const earningsId = earning.id;
+        // Show exactly who gets what and require a confirmation click, so a stray
+        // /payout can't mark everything as paid.
+        const playerNames = await getPlayerNames(interaction.guild, [...plan.perPlayer.keys()]);
+        const breakdown = [...plan.perPlayer.entries()]
+            .map(([playerId, amount]) => `${playerNames.get(playerId)}: €${amount.toFixed(2)}`)
+            .join("\n");
 
-            const players = await executeQuery(`
-                SELECT player_id FROM earnings_players WHERE earning_id = ? AND guild_id = ?;
-            `, [earningsId, interaction.guild.id]);
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId("payout_confirm").setLabel("Confirm payout").setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId("payout_cancel").setLabel("Cancel").setStyle(ButtonStyle.Secondary),
+        );
 
-            const earningAmount = netAmount / players.length;
+        const prompt = await interaction.editReply({
+            content: `**Payout of €${plan.total.toFixed(2)}** across ${plan.earnings.length} earning(s):\n${breakdown}${skippedNote}`.slice(0, 2000),
+            components: [row],
+        });
 
-            for (const player of players) {
-                const playerId = player.player_id;
+        let click;
+        try {
+            click = await prompt.awaitMessageComponent({
+                componentType: ComponentType.Button,
+                filter: i => i.user.id === interaction.user.id,
+                time: CONFIRM_TIMEOUT_MS,
+            });
+        } catch {
+            return interaction.editReply({ content: "Payout timed out — nothing was paid out.", components: [] });
+        }
 
-                let existing = playerData.find(p => p.playerId === playerId && p.earningId === earningsId);
-                if (existing) {
-                    existing.amount += earningAmount;
-                } else {
-                    playerData.push({
-                        playerId,
-                        amount: earningAmount,
-                        earningId: earningsId,
-                        totalAmount: netAmount
-                    });
+        if (click.customId !== "payout_confirm") {
+            return click.update({ content: "Payout cancelled — nothing was paid out.", components: [] });
+        }
+
+        await click.update({ content: "Processing payout...", components: [] });
+
+        try {
+            // All-or-nothing: earnings are only marked paid if every payout row was
+            // written, and only the earnings shown above are touched (an earning added
+            // while the confirmation was open stays unpaid).
+            await withTransaction(async (conn) => {
+                for (const earning of plan.earnings) {
+                    const [update] = await conn.execute(
+                        "UPDATE earnings SET paid_out = 1 WHERE id = ? AND guild_id = ? AND paid_out = 0",
+                        [earning.id, guildId]
+                    );
+                    if (update.affectedRows !== 1) {
+                        throw new Error(`Earning ${earning.id} was changed or paid out by someone else`);
+                    }
+
+                    for (const playerId of earning.playerIds) {
+                        await conn.execute(
+                            `INSERT INTO earnings_payouts (guild_id, earning_id, total_amount, authorizer_id, player_id, player_split_amount)
+                            VALUES (?, ?, ?, ?, ?, ?)`,
+                            [guildId, earning.id, earning.netAmount, interaction.user.id, playerId, earning.share]
+                        );
+                    }
                 }
+            });
+        } catch (error) {
+            console.error(`Payout failed for guild ${guildId}:`, error);
+            return interaction.editReply({ content: "The payout failed and nothing was marked as paid. Please try again." });
+        }
+
+        const problem = await earnings.refreshEarningsEmbed(interaction.guild);
+
+        await interaction.editReply({
+            content: `Payout of €${plan.total.toFixed(2)} has been processed for ${plan.perPlayer.size} player(s).${skippedNote}`
+                + (problem ? `\n⚠ The earnings embed wasn't updated: ${problem}` : ""),
+        });
+
+        await sendLogEmbed(
+            guildId,
+            `**Payout Processed**\n\nA payout of €${plan.total.toFixed(2)} has been processed for ${plan.perPlayer.size} player(s).\n\n${breakdown}\n\n**By:** <@${interaction.user.id}>`.slice(0, 4096),
+            COLOUR_VALUES.ADD
+        );
+    },
+
+    // Works out what each unpaid earning pays to each player, without changing anything.
+    async buildPayoutPlan(guildId) {
+        const unpaid = await executeQuery(`
+            SELECT e.id, e.amount, e.slot_cost,
+                GROUP_CONCAT(CAST(ep.player_id AS CHAR)) AS player_ids
+            FROM earnings e
+            LEFT JOIN earnings_players ep ON ep.earning_id = e.id AND ep.guild_id = e.guild_id
+            WHERE e.guild_id = ? AND e.paid_out = 0
+            GROUP BY e.id
+            ORDER BY e.id;
+        `, [guildId]);
+
+        const plan = { earnings: [], skipped: [], perPlayer: new Map(), total: 0 };
+
+        for (const row of unpaid) {
+            const playerIds = row.player_ids ? [...new Set(row.player_ids.split(","))] : [];
+            if (playerIds.length === 0) {
+                // Dividing by zero players used to write NaN payouts and fail halfway.
+                plan.skipped.push(row.id);
+                continue;
+            }
+
+            const netAmount = parseFloat(row.amount) - parseFloat(row.slot_cost);
+            const share = netAmount / playerIds.length;
+
+            plan.earnings.push({ id: row.id, netAmount, share, playerIds });
+            plan.total += netAmount;
+            for (const playerId of playerIds) {
+                plan.perPlayer.set(playerId, (plan.perPlayer.get(playerId) || 0) + share);
             }
         }
 
-        await executeQuery(
-            "UPDATE earnings SET paid_out = 1 WHERE guild_id = ? AND paid_out = 0",
-            [interaction.guild.id]
-        );
-
-        for (const player of playerData) {
-            await executeQuery(
-                `INSERT INTO earnings_payouts (guild_id, earning_id, total_amount, authorizer_id, player_id, player_split_amount)
-                VALUES (?, ?, ?, ?, ?, ?)`,
-                [interaction.guild.id, player.earningId, player.totalAmount, interaction.user.id, player.playerId, player.amount]
-            );
-        }
-
-        const updatedEmbed = await earnings.generateEmbed(interaction.guild.id);
-        await message.edit({ embeds: [updatedEmbed] });
-        return interaction.editReply(`Payout of €${payoutAmount} has been processed and earnings marked as paid out for ${playerData.length} player(s).`);
+        return plan;
     },
 
     development: false

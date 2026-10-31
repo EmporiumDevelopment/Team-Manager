@@ -189,10 +189,9 @@ export default {
             // send the default social media embed
             const embed = await this.createSocialMediaEmbed(interaction);
 
-            await channel.send({ embeds: [embed] });
-
-            // update the message ID in the database
-            const message = await channel.messages.fetch({ limit: 1 }).then(messages => messages.first());
+            // use the message we just sent so we store the right ID (fetching the
+            // channel's last message is racy if another message arrives first)
+            const message = await channel.send({ embeds: [embed] });
 
             if(message) {
                 await executeQuery(`

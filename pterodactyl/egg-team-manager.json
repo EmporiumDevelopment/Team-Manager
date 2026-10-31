@@ -1,0 +1,93 @@
+{
+    "_comment": "Pterodactyl egg for the Team Manager Discord bot. Pulls the latest code from GitHub and installs dependencies on every server start.",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2026-10-31T00:00:00+00:00",
+    "name": "Team Manager Bot",
+    "author": "brantshaw4@gmail.com",
+    "description": "Team Manager Discord bot (discord.js). On every start it fetches the configured branch from GitHub, hard-resets to it, runs npm install, then launches the bot. Your src/.env is git-ignored, so updates never touch it.",
+    "features": null,
+    "docker_images": {
+        "Node.js 22": "ghcr.io/parkervcp/yolks:nodejs_22",
+        "Node.js 20": "ghcr.io/parkervcp/yolks:nodejs_20"
+    },
+    "file_denylist": [],
+    "startup": "if [[ \"{{AUTO_UPDATE}}\" == \"1\" ]] && [[ -d .git ]]; then echo \"[updater] Fetching {{GIT_BRANCH}}...\"; if [[ -n \"{{ACCESS_TOKEN}}\" ]]; then git remote set-url origin \"https://{{USERNAME}}:{{ACCESS_TOKEN}}@${GIT_ADDRESS#https://}\"; else git remote set-url origin \"{{GIT_ADDRESS}}\"; fi; if git fetch --depth 1 origin \"{{GIT_BRANCH}}\"; then git reset --hard FETCH_HEAD && echo \"[updater] Now on $(git rev-parse --short HEAD)\"; else echo \"[updater] Fetch failed, starting current version\"; fi; fi; if [[ -f package.json ]]; then npm install --omit=dev --no-audit --no-fund; fi; node {{MAIN_FILE}}",
+    "config": {
+        "files": "{}",
+        "startup": "{\r\n    \"done\": \"Bot is online!\"\r\n}",
+        "logs": "{}",
+        "stop": "^C"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\r\n# Team Manager install script - runs once on server install/reinstall\r\napt update\r\napt install -y git ca-certificates\r\n\r\nmkdir -p /mnt/server\r\ncd /mnt/server\r\n\r\nif [[ -n \"${ACCESS_TOKEN}\" ]]; then\r\n    REPO_URL=\"https://${USERNAME}:${ACCESS_TOKEN}@${GIT_ADDRESS#https://}\"\r\nelse\r\n    REPO_URL=\"${GIT_ADDRESS}\"\r\nfi\r\n\r\nif [[ -d .git ]]; then\r\n    echo \"Existing repo found, updating\"\r\n    git remote set-url origin \"${REPO_URL}\"\r\n    git fetch --depth 1 origin \"${GIT_BRANCH}\"\r\n    git reset --hard FETCH_HEAD\r\nelse\r\n    # keep a pre-existing src/.env if the server is being reinstalled\r\n    [[ -f src/.env ]] && cp src/.env /tmp/team-manager.env\r\n    find . -mindepth 1 -delete\r\n    git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" .\r\n    [[ -f /tmp/team-manager.env ]] && cp /tmp/team-manager.env src/.env\r\nfi\r\n\r\nif [[ ! -f src/.env ]]; then\r\n    printf 'TOKEN=\\nCLIENT_ID=\\nTEST_SERVER_ID=\\nDB_HOST=\\nDB_USER=\\nDB_PASS=\\nDB_NAME=\\nTIKTOK_CLIENT_KEY=\\nTIKTOK_CLIENT_SECRET=\\nTIKTOK_REDIRECT_URI=\\n' > src/.env\r\n    echo \"Created empty src/.env - fill it in from the file manager before starting\"\r\nfi\r\n\r\nnpm install --omit=dev --no-audit --no-fund\r\necho \"Install complete\"",
+            "container": "ghcr.io/parkervcp/installers:debian",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "Git Repository",
+            "description": "HTTPS URL of the bot's GitHub repository.",
+            "env_variable": "GIT_ADDRESS",
+            "default_value": "https://github.com/EmporiumDevelopment/Team-Manager.git",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|starts_with:https://",
+            "field_type": "text"
+        },
+        {
+            "name": "Branch",
+            "description": "Branch to deploy.",
+            "env_variable": "GIT_BRANCH",
+            "default_value": "main",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:64",
+            "field_type": "text"
+        },
+        {
+            "name": "Auto Update",
+            "description": "1 = pull the latest code from the branch on every start/restart. 0 = keep the current code.",
+            "env_variable": "AUTO_UPDATE",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "Git Username",
+            "description": "GitHub username. Only needed if the repository is private.",
+            "env_variable": "USERNAME",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Git Access Token",
+            "description": "GitHub fine-grained personal access token with read-only Contents access. Only needed if the repository is private.",
+            "env_variable": "ACCESS_TOKEN",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Main File",
+            "description": "Entry point of the bot.",
+            "env_variable": "MAIN_FILE",
+            "default_value": "src/index.js",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|string",
+            "field_type": "text"
+        }
+    ]
+}

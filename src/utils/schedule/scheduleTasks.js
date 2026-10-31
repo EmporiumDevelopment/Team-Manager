@@ -56,12 +56,14 @@ cron.schedule("0 0 * * *", async () => {
     for (const guild of guilds) {
         for(const team of teams) {
             try {
-            await cleanupCompletedEvents(client, guild, team);
-        } catch(error) {
-            console.error(`Error cleaning complete events for guild ${guild.id}:`, error);
-        }
+                await cleanupCompletedEvents(client, guild, team);
+            } catch(error) {
+                console.error(`Error cleaning complete events for guild ${guild.id}:`, error);
+            }
         }
     }
+}, {
+    timezone: TIMEZONE
 });
 
 export default cron;

@@ -2,12 +2,13 @@ import { executeQuery } from "../../database.js";
 import COLOUR_VALUES from "../../utils/colourMap.js";
 import { sendLogEmbed } from "../../utils/logger.js";
 import roster from "../../commands/roster.js";
+import { cleanPlayerName } from "../../utils/playerNames.js";
 
 export async function handleMemberLeave(member) {
 
     // check if the member is in the roster
     const rosterData = await executeQuery(`
-        SELECT 1 FROM roster WHERE guild_id = ? AND discord_id = ?
+        SELECT player_name FROM roster WHERE guild_id = ? AND discord_id = ?
         LIMIT 1
     `, [member.guild.id, member.id]);
 
@@ -24,7 +25,7 @@ export async function handleMemberLeave(member) {
     // log the member's departure
     await sendLogEmbed(
         member.guild.id,
-        `Member ${member.user} has left the server, and has been removed from the roster.`,
+        `Member ${cleanPlayerName(rosterData[0].player_name) || member.user.username} has left the server, and has been removed from the roster.`,
         COLOUR_VALUES.REMOVE
     );
 

@@ -1,7 +1,8 @@
 import { EmbedBuilder, PermissionsBitField, SlashCommandBuilder } from "discord.js";
-import { executeQuery } from "../database.js";
+import { executeQuery, withTransaction } from "../database.js";
 import { sendLogEmbed } from "../utils/logger.js";
 import COLOUR_VALUES from "../utils/colourMap.js";
+import { formatPlayerList } from "../utils/playerNames.js";
 
 export default {
     data: new SlashCommandBuilder()
@@ -168,7 +169,7 @@ export default {
                 return interaction.reply({ content: "Unknown subcommand.", ephemeral: true });
             }
         }
-                
+
     },
 
     async setChannel(interaction) {
@@ -179,18 +180,12 @@ export default {
 
         try {
             if (!channel) {
-                return interaction.editReply({ content: "Error: Could not find the specified channel.", ephemeral: true });
+                return interaction.editReply({ content: "Error: Could not find the specified channel." });
             }
 
-            const earningsSettings = await executeQuery(`
-                SELECT * FROM earnings_settings WHERE guild_id = ?;
-            `, [guildId]);
-
-            if (earningsSettings.length === 0) {
-                // Initialize default settings
-                await executeQuery(`
-                    INSERT INTO earnings_settings (guild_id) VALUES (?);
-                `, [guildId]);
+            const me = interaction.guild.members.me;
+            if (me && !channel.permissionsFor(me)?.has(PermissionsBitField.Flags.SendMessages)) {
+                return interaction.editReply({ content: "I do not have permission to send messages in that channel." });
             }
 
             // Update the channel setting in the database
@@ -208,18 +203,57 @@ export default {
                 UPDATE earnings_settings SET message_id = ? WHERE guild_id = ?;
             `, [sentEmbed.id, guildId]);
 
-            await interaction.editReply({ content: `Piggy Bank channel set to ${channel}.`, ephemeral: true });
+            await interaction.editReply({ content: `Piggy Bank channel set to ${channel}.` });
 
-        await sendLogEmbed(
-            guildId, 
-            `**Piggy Bank Channel Set**\n\nPiggy Bank channel has been set to <#${channel.id}>.\n**By:** <@${interaction.user.id}>.`,
-            COLOUR_VALUES.INFO
-        );
+            await sendLogEmbed(
+                guildId,
+                `**Piggy Bank Channel Set**\n\nPiggy Bank channel has been set to <#${channel.id}>.\n**By:** <@${interaction.user.id}>.`,
+                COLOUR_VALUES.ADD
+            );
 
         } catch (error) {
             console.error(`Failed to set piggy bank channel:`, error);
-            return interaction.editReply({ content: "An error occurred while setting up the piggy bank channel.", ephemeral: true });
+            return interaction.editReply({ content: "An error occurred while setting up the piggy bank channel." });
         }
+    },
+
+    // Edits the stored earnings message, or re-sends it if it was deleted. Returns a
+    // problem description string, or null on success. Shared by add/remove/edit and
+    // /payout (previously four copies of the same lookup, each crashing with an
+    // unhandled error if the message had been deleted).
+    async refreshEarningsEmbed(guild) {
+        const [settings] = await executeQuery(`
+            SELECT channel_id, message_id FROM earnings_settings WHERE guild_id = ?;
+        `, [guild.id]);
+
+        if (!settings?.channel_id) {
+            return "Earnings channel is not set up. Use `/earnings channel` to set it up.";
+        }
+
+        const channel = await guild.channels.fetch(settings.channel_id).catch(() => null);
+        if (!channel) {
+            return "Could not find the earnings channel. Set it again with `/earnings channel`.";
+        }
+
+        const embed = await this.generateEmbed(guild.id);
+
+        const message = settings.message_id
+            ? await channel.messages.fetch(settings.message_id).catch(() => null)
+            : null;
+
+        if (message) {
+            await message.edit({ embeds: [embed] });
+            return null;
+        }
+
+        const me = guild.members.me;
+        if (me && !channel.permissionsFor(me)?.has(PermissionsBitField.Flags.SendMessages)) {
+            return "I do not have permission to send messages in the earnings channel.";
+        }
+
+        const newMessage = await channel.send({ embeds: [embed] });
+        await executeQuery(`UPDATE earnings_settings SET message_id = ? WHERE guild_id = ?;`, [newMessage.id, guild.id]);
+        return null;
     },
 
     async addEarning(interaction) {
@@ -235,6 +269,10 @@ export default {
             return interaction.reply({ content: "Amount must not be less than zero.", ephemeral: true });
         }
 
+        if(slotCost < 0) {
+            return interaction.reply({ content: "Slot cost must not be less than zero.", ephemeral: true });
+        }
+
         if(!eventName || eventName.trim() === "") {
             return interaction.reply({ content: "Event name cannot be empty.", ephemeral: true });
         }
@@ -247,10 +285,10 @@ export default {
             return interaction.reply({ content: "Result must be a positive number.", ephemeral: true });
         }
 
-        // 6 = max amount of player inputs
+        // 6 = max amount of player inputs; ignore the same player picked twice
         for (let i = 1; i <= 6; i++) {
             const player = interaction.options.getUser(`player${i}`);
-            if (player) {
+            if (player && !players.some(p => p.id === player.id)) {
                 players.push(player);
             }
         }
@@ -262,57 +300,37 @@ export default {
         await interaction.deferReply({ ephemeral: true });
         try {
 
-            // Insert the earnings record into the database
-            const dbResultArray = await executeQuery(`
-                INSERT INTO earnings (guild_id, amount, event_name, result, paid_out, slot_cost, date)
-                VALUES (?, ?, ?, ?, ?, ?, ?);
-            `, [guildId, originalAmount, eventName, result, false, slotCost, new Date()]);
+            // Insert the earning and its players together, so a failure can't leave
+            // an earning with no players (which /payout can't split).
+            await withTransaction(async (conn) => {
+                const [dbResult] = await conn.execute(`
+                    INSERT INTO earnings (guild_id, amount, event_name, result, paid_out, slot_cost, date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?);
+                `, [guildId, originalAmount, eventName, result, false, slotCost, new Date()]);
 
-            const dbResult = dbResultArray[0];
-            // Link players to the earnings record
-            const earningId = dbResult.insertId;
+                for (const player of players) {
+                    await conn.execute(`
+                        INSERT INTO earnings_players (earning_id, guild_id, player_id)
+                        VALUES (?, ?, ?);
+                    `, [dbResult.insertId, guildId, player.id]);
+                }
+            });
 
-            for (const player of players) {
-                await executeQuery(`
-                    INSERT INTO earnings_players (earning_id, guild_id, player_id)
-                    VALUES (?, ?, ?);
-                `, [earningId, guildId, player.id]);
-            }
+            const problem = await this.refreshEarningsEmbed(interaction.guild);
 
-            // Update the earnings embed in the designated channel
-            const earningsSettings = await executeQuery(`
-                SELECT channel_id, message_id FROM earnings_settings WHERE guild_id = ?;
-            `, [guildId]);
-
-            if (earningsSettings.length === 0) {
-                return interaction.editReply({ content: "Earnings channel is not set up. Please set it up first.", ephemeral: true });
-            }
-
-            const channelId = earningsSettings[0].channel_id;
-            const messageId = earningsSettings[0].message_id;
-            const channel = await interaction.guild.channels.fetch(channelId);
-
-            if (!channel) {
-                return interaction.editReply({ content: "Could not find the earnings channel. Please check the setup.", ephemeral: true });
-            }
-
-            const message = await channel.messages.fetch(messageId);
-            if (!message) {
-                return interaction.editReply({ content: "Could not find the earnings message. Please check the setup.", ephemeral: true });
-            }
-
-            const updatedEmbed = await this.generateEmbed(guildId);
-            await message.edit({ embeds: [updatedEmbed] });
-            await interaction.editReply({ content: `Added $${originalAmount} for event "${eventName}" with ${players.length} player(s) and €${slotCost} slot cost`, ephemeral: true });
+            await interaction.editReply({
+                content: `Added ${formatEuro(originalAmount)} for event "${eventName}" with ${players.length} player(s) and ${formatEuro(slotCost)} slot cost.`
+                    + (problem ? `\n⚠ The earning was saved, but the embed wasn't updated: ${problem}` : ""),
+            });
 
             await sendLogEmbed(
-                guildId, 
-                `**Team Earnings Added**\n\nEvent: **${eventName}**\nAmount: **€${originalAmount}**\nResult: **#${result}**\nPlayers: **${players.map(p => p.tag).join(", ")}**\nSlot Cost: **€${slotCost}**\n**By:** <@${interaction.user.id}>.`,
+                guildId,
+                `**Team Earnings Added**\n\nEvent: **${eventName}**\nAmount: **${formatEuro(originalAmount)}**\nResult: **#${result}**\nPlayers: **${await formatPlayerList(interaction.guild, players.map(p => p.id))}**\nSlot Cost: **${formatEuro(slotCost)}**\n**By:** <@${interaction.user.id}>.`,
                 COLOUR_VALUES.ADD
             );
         } catch (error) {
             console.error(`Failed to add earnings:`, error);
-            return interaction.editReply({ content: "An error occurred while adding earnings.", ephemeral: true });
+            return interaction.editReply({ content: "An error occurred while adding earnings." });
         }
     },
 
@@ -325,61 +343,34 @@ export default {
         }
 
         await interaction.deferReply({ ephemeral: true });
-        
+
         const targetEarning = await executeQuery(`
             SELECT * FROM earnings WHERE id = ? AND guild_id = ?;
         `, [earningId, guildId]);
 
         if(targetEarning.length === 0) {
-            return interaction.editReply({ content: `No earning entry found with ID ${earningId}.`, ephemeral: true });
+            return interaction.editReply({ content: `No earning entry found with ID ${earningId}.` });
         }
 
         try {
-            // Delete the earning entry
-            await executeQuery(`
-                DELETE FROM earnings WHERE id = ? AND guild_id = ?;
-            `, [earningId, guildId]);
+            await withTransaction(async (conn) => {
+                await conn.execute(`DELETE FROM earnings WHERE id = ? AND guild_id = ?;`, [earningId, guildId]);
+                await conn.execute(`DELETE FROM earnings_players WHERE earning_id = ? AND guild_id = ?;`, [earningId, guildId]);
+            });
 
-            // Also delete associated players
-            await executeQuery(`
-                DELETE FROM earnings_players WHERE earning_id = ?;
-            `, [earningId]);
-
-            // Update the earnings embed in the designated channel
-            const earningsSettings = await executeQuery(`
-                SELECT channel_id, message_id FROM earnings_settings WHERE guild_id = ?;
-            `, [guildId]);
-
-            if (earningsSettings.length === 0) {
-                return interaction.editReply({ content: "Earnings channel is not set up. Please set it up first.", ephemeral: true });
-            }
-
-            const channelId = earningsSettings[0].channel_id;
-            const messageId = earningsSettings[0].message_id;
-
-            const channel = await interaction.guild.channels.fetch(channelId);
-            if (!channel) {
-                return interaction.editReply({ content: "Could not find the earnings channel. Please check the setup.", ephemeral: true });
-            }
-
-            const message = await channel.messages.fetch(messageId);
-            if (!message) {
-                return interaction.editReply({ content: "Could not find the earnings message. Please check the setup.", ephemeral: true });
-            }
-
-            const updatedEmbed = await this.generateEmbed(guildId);
-
-            await message.edit({ embeds: [updatedEmbed] });
-            await interaction.editReply({ content: `Removed earning entry with ID ${earningId}.`, ephemeral: true });
+            const problem = await this.refreshEarningsEmbed(interaction.guild);
+            await interaction.editReply({
+                content: `Removed earning entry with ID ${earningId}.` + (problem ? `\n⚠ ${problem}` : ""),
+            });
 
             await sendLogEmbed(
-                guildId, 
-                `**Team Earning Removed**\n\nEarning ID: **${earningId}**\nEvent: **${targetEarning[0].event_name}**\nAmount: **€${targetEarning[0].amount}**\nResult: **#${targetEarning[0].result}**\n**By:** <@${interaction.user.id}>.`,
+                guildId,
+                `**Team Earning Removed**\n\nEarning ID: **${earningId}**\nEvent: **${targetEarning[0].event_name}**\nAmount: **${formatEuro(targetEarning[0].amount)}**\nResult: **#${targetEarning[0].result}**\n**By:** <@${interaction.user.id}>.`,
                 COLOUR_VALUES.REMOVE
             );
         } catch (error) {
             console.error(`Failed to remove earning entry:`, error);
-            return interaction.editReply({ content: "An error occurred while removing the earning entry.", ephemeral: true });
+            return interaction.editReply({ content: "An error occurred while removing the earning entry." });
         }
     },
 
@@ -392,207 +383,190 @@ export default {
         if(!earningId) return interaction.reply({ content: "Earning ID must be provided.", ephemeral: true });
         if(!field) return interaction.reply({ content: "Field to edit must be provided.", ephemeral: true });
         if(!newValue) return interaction.reply({ content: `A new value for ${field} must be provided.`, ephemeral: true });
-        
+
         await interaction.deferReply({ ephemeral: true });
 
         const targetEarning = await executeQuery(`
             SELECT * FROM earnings WHERE id = ? AND guild_id = ?;
         `, [earningId, guildId]);
 
-        if(targetEarning.length === 0) return interaction.editReply({ content: `No earning entry found with ID ${earningId}.`, ephemeral: true });
+        if(targetEarning.length === 0) return interaction.editReply({ content: `No earning entry found with ID ${earningId}.` });
 
         try {
             // Update the specified field in the database
             let query = "";
             let params = [];
+            const number = Number(newValue);
             switch(field) {
                 case "amount":
-                    if(isNaN(parseFloat(newValue))) return interaction.editReply({ content: "Amount must be a valid number.", ephemeral: true });
-                    if(newValue < 0) return interaction.editReply({ content: "Amount must not be less than zero.", ephemeral: true });
+                    if(newValue.trim() === "" || isNaN(number)) return interaction.editReply({ content: "Amount must be a valid number." });
+                    if(number < 0) return interaction.editReply({ content: "Amount must not be less than zero." });
 
                     query = "UPDATE earnings SET amount = ? WHERE id = ? AND guild_id = ?;";
-                    params = [parseFloat(newValue), earningId, guildId];
+                    params = [number, earningId, guildId];
                     break;
 
                 case "event_name":
-                    if(newValue.trim() === "") return interaction.editReply({ content: "Event name cannot be empty.", ephemeral: true });
+                    if(newValue.trim() === "") return interaction.editReply({ content: "Event name cannot be empty." });
 
                     query = "UPDATE earnings SET event_name = ? WHERE id = ? AND guild_id = ?;";
                     params = [newValue, earningId, guildId];
                     break;
 
                 case "result":
-                    if(isNaN(parseInt(newValue))) return interaction.editReply({ content: "Result must be a valid number.", ephemeral: true });
-                    if(parseInt(newValue) <= 0) return interaction.editReply({ content: "Result must be a positive number.", ephemeral: true });
+                    if(!Number.isInteger(number)) return interaction.editReply({ content: "Result must be a whole number." });
+                    if(number <= 0) return interaction.editReply({ content: "Result must be a positive number." });
 
                     query = "UPDATE earnings SET result = ? WHERE id = ? AND guild_id = ?;";
-                    params = [parseInt(newValue), earningId, guildId];
+                    params = [number, earningId, guildId];
                     break;
 
                 case "slot_cost":
-                    if(isNaN(parseFloat(newValue))) return interaction.editReply({ content: "Slot cost must be a valid number.", ephemeral: true });
-                    if(newValue < 0) return interaction.editReply({ content: "Slot cost must not be less than zero.", ephemeral: true });
+                    if(newValue.trim() === "" || isNaN(number)) return interaction.editReply({ content: "Slot cost must be a valid number." });
+                    if(number < 0) return interaction.editReply({ content: "Slot cost must not be less than zero." });
 
                     query = "UPDATE earnings SET slot_cost = ? WHERE id = ? AND guild_id = ?;";
-                    params = [parseFloat(newValue), earningId, guildId];
+                    params = [number, earningId, guildId];
                     break;
-                    
+
                 default:
-                    return interaction.editReply({ content: `Invalid field: ${field}.`, ephemeral: true });
+                    return interaction.editReply({ content: `Invalid field: ${field}.` });
             }
             await executeQuery(query, params);
 
-            // Update the earnings embed in the designated channel
-            const earningsSettings = await executeQuery(`
-                SELECT channel_id, message_id FROM earnings_settings WHERE guild_id = ?;
-            `, [guildId]);
-
-            if (earningsSettings.length === 0) {
-                return interaction.editReply({ content: "Earnings channel is not set up. Please set it up first.", ephemeral: true });
-            }
-
-            const channelId = earningsSettings[0].channel_id;
-            const messageId = earningsSettings[0].message_id;
-
-            const channel = await interaction.guild.channels.fetch(channelId);
-            if (!channel) {
-                return interaction.editReply({ content: "Could not find the earnings channel. Please setup with /earnings channel.", ephemeral: true });
-            }
-
-            const message = await channel.messages.fetch(messageId);
-            if (!message) {
-                return interaction.editReply({ content: "Could not find the earnings message. Please setup with /earnings channel.", ephemeral: true });
-            }
-
-            const updatedEmbed = await this.generateEmbed(guildId);
-
-            await message.edit({ embeds: [updatedEmbed] });
-            await interaction.editReply({ content: `Updated **${field}** for earning entry with ID ${earningId}.`, ephemeral: true });
+            const problem = await this.refreshEarningsEmbed(interaction.guild);
+            await interaction.editReply({
+                content: `Updated **${field}** for earning entry with ID ${earningId}.` + (problem ? `\n⚠ ${problem}` : ""),
+            });
 
             await sendLogEmbed(
-                guildId, 
+                guildId,
                 `**Team Earning Edited**\n\nEarning ID: **${earningId}**\nField: **${field}**\nNew Value: **${newValue}**\n**By:** <@${interaction.user.id}>.`,
                 COLOUR_VALUES.EDIT
             );
         } catch (error) {
             console.error(`Failed to edit earning entry:`, error);
-            return interaction.editReply({ content: "An error occurred while editing the earning entry.", ephemeral: true });
+            return interaction.editReply({ content: "An error occurred while editing the earning entry." });
         }
     },
 
     async generateEmbed(guildId) {
-    
+
         // Fetch earnings settings for the guild
         const [settings] = await executeQuery(`
             SELECT embed_title FROM earnings_settings WHERE guild_id = ?
         `, [guildId]);
 
-        /*
-         * Fetch existing earnings from the database
-         * and display them in the embed
-        */
-       const earnings = await executeQuery(`
-            SELECT * FROM earnings WHERE guild_id = ? ORDER BY date DESC;
+        // One query for every earning and its players (previously one extra query
+        // per earning).
+        const earnings = await executeQuery(`
+            SELECT e.id, e.event_name, e.result, e.amount, e.slot_cost, e.paid_out, e.date,
+                GROUP_CONCAT(CAST(ep.player_id AS CHAR)) AS player_ids
+            FROM earnings e
+            LEFT JOIN earnings_players ep ON ep.earning_id = e.id AND ep.guild_id = e.guild_id
+            WHERE e.guild_id = ?
+            GROUP BY e.id
+            ORDER BY e.date DESC, e.id DESC;
         `, [guildId]);
 
-        let bodyText = "";
         let totalEarnings = 0;
         let currentBalance = 0;
-        /*
-        * Format each earning entry:
-        *
-        * Event Name - #Result
-        * Amount €
-        * Players
-        * Slot Cost €
-        * Date
-        * 
-        * Then calculate total earnings and current balance
-        */
-        for (const earning of earnings) {
-            const id = earning.id;
-            const date = new Date(earning.date);
-            const formattedDate = date.toLocaleDateString();
 
-            const players = await executeQuery(`
-                SELECT player_id FROM earnings_players WHERE earning_id = ?;
-            `, [id]);
-
-            let playersText = "";
-            for (const player of players) {
-                playersText += `<@${player.player_id}> `; // mention format
+        const earningEntries = earnings.map(earning => {
+            totalEarnings += parseFloat(earning.amount);
+            if (!earning.paid_out) {
+                currentBalance += parseFloat(earning.amount) - parseFloat(earning.slot_cost);
             }
 
-            bodyText += `**${earning.event_name} - #${earning.result}**\n€${earning.amount}\nPlayers: ${playersText}\nSlot Cost: €${earning.slot_cost}\n${formattedDate}\nID: ${earning.id}\n\n`;
-            totalEarnings += parseFloat(earning.amount);
+            const playersText = earning.player_ids
+                ? earning.player_ids.split(",").map(id => `<@${id}>`).join(" ")
+                : "None";
+            const paidTag = earning.paid_out ? " ✅" : "";
 
-            // Calculate current balance from unpaid earnings
-            if(earning.paid_out) continue;
-            currentBalance += parseFloat(earning.amount - earning.slot_cost);
-        }
+            return `**${earning.event_name} - #${earning.result}**${paidTag}\n${formatEuro(earning.amount)}\nPlayers: ${playersText}\nSlot Cost: ${formatEuro(earning.slot_cost)}\n${formatDate(earning.date)}\nID: ${earning.id}\n\n`;
+        });
 
         const payoutRows = await executeQuery(`
-            SELECT ep.earning_id, ep.total_amount, ep.authorizer_id, ep.player_id,
+            SELECT ep.earning_id, ep.total_amount,
+                CAST(ep.authorizer_id AS CHAR) AS authorizer_id,
+                CAST(ep.player_id AS CHAR) AS player_id,
                 ep.player_split_amount, ep.date, e.event_name, e.result
             FROM earnings_payouts ep
             JOIN earnings e ON ep.earning_id = e.id
             WHERE ep.guild_id = ?
-            ORDER BY ep.date DESC;
+            ORDER BY ep.date DESC, ep.id DESC;
         `, [guildId]);
 
-        let payoutsText = `**Payouts:**\n`;
-
-        if (payoutRows.length === 0) {
-            payoutsText += "No payouts have been made yet.\n\n";
-        } else {
-            const grouped = new Map();
-
-            for (const row of payoutRows) {
-                const key = row.earning_id;
-
-                if (!grouped.has(key)) {
-                    grouped.set(key, {
-                        event_name: row.event_name,
-                        result: row.result,
-                        total_amount: parseFloat(row.total_amount),
-                        authorizer_id: row.authorizer_id,
-                        date: row.date,
-                        players: []
-                    });
-                }
-
-                grouped.get(key).players.push({
-                    player_id: row.player_id,
-                    amount: parseFloat(row.player_split_amount)
+        const grouped = new Map();
+        for (const row of payoutRows) {
+            if (!grouped.has(row.earning_id)) {
+                grouped.set(row.earning_id, {
+                    event_name: row.event_name,
+                    total_amount: parseFloat(row.total_amount),
+                    authorizer_id: row.authorizer_id,
+                    date: row.date,
+                    players: []
                 });
             }
-
-            for (const [, group] of grouped.entries()) {
-                const formattedDate = new Date(group.date).toLocaleDateString();
-                payoutsText += `\nTotal: €${group.total_amount.toFixed(2)}\n` +
-                            `Authorized by <@${group.authorizer_id}> on ${formattedDate}\n` +
-                            `Players:\n`;
-
-                for (const player of group.players) {
-                    payoutsText += `<@${player.player_id}>: €${player.amount.toFixed(2)}\n`;
-                }
-            }
-
+            grouped.get(row.earning_id).players.push(`<@${row.player_id}>: ${formatEuro(row.player_split_amount)}`);
         }
 
-        bodyText += payoutsText;
-        bodyText += `\n**Current Balance:** €${currentBalance}\n`;
+        const payoutEntries = [...grouped.values()].map(group =>
+            `\n**${group.event_name}** — Total: ${formatEuro(group.total_amount)}\n` +
+            `Authorized by <@${group.authorizer_id}> on ${formatDate(group.date)}\n` +
+            `Players:\n${group.players.join("\n")}\n`
+        );
 
-        let title = settings?.embed_title ?? "Piggy Bank";
-        title += ` - €${totalEarnings}`;
+        // Discord rejects embed descriptions over 4096 characters, which used to make
+        // every earnings update fail once enough history built up. Show the newest
+        // entries that fit and note how many older ones are hidden.
+        const balanceText = `\n**Current Balance:** ${formatEuro(currentBalance)}\n`;
+        const payoutsHeader = `**Payouts:**\n`;
+        const budget = 4096 - balanceText.length - payoutsHeader.length - 120;
 
-        const embed = new EmbedBuilder()
-            .setTitle(title)
-            .setColor("#08f7ff");
-        embed.setDescription(bodyText);
+        const shownEarnings = takeWhileFits(earningEntries, Math.floor(budget * 0.65));
+        const payoutBudget = budget - shownEarnings.text.length;
+        const shownPayouts = takeWhileFits(payoutEntries, payoutBudget);
 
-        return embed;
+        let bodyText = shownEarnings.text;
+        if (shownEarnings.hidden > 0) bodyText += `-# …and ${shownEarnings.hidden} older earning(s) not shown\n\n`;
+
+        bodyText += payoutsHeader;
+        if (payoutEntries.length === 0) {
+            bodyText += "No payouts have been made yet.\n";
+        } else {
+            bodyText += shownPayouts.text;
+            if (shownPayouts.hidden > 0) bodyText += `-# …and ${shownPayouts.hidden} older payout(s) not shown\n`;
+        }
+        bodyText += balanceText;
+
+        const title = `${settings?.embed_title ?? "Piggy Bank"} - ${formatEuro(totalEarnings)}`;
+
+        return new EmbedBuilder()
+            .setTitle(title.slice(0, 256))
+            .setColor("#08f7ff")
+            .setDescription(bodyText.slice(0, 4096));
     },
 
     development: false
 };
+
+function formatEuro(value) {
+    return `€${(Number(value) || 0).toFixed(2)}`;
+}
+
+function formatDate(value) {
+    return new Date(value).toLocaleDateString("en-GB");
+}
+
+// Takes entries (newest first) until the combined length would exceed maxLength.
+function takeWhileFits(entries, maxLength) {
+    let text = "";
+    let count = 0;
+    for (const entry of entries) {
+        if (text.length + entry.length > maxLength) break;
+        text += entry;
+        count++;
+    }
+    return { text, hidden: entries.length - count };
+}
