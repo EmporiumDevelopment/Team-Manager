@@ -1,10 +1,9 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } from "discord.js";
 import { executeQuery } from "../database.js";
-import { cleanPlayerName } from "./playerNames.js";
 
 // Scrim "slots" are the player-count modes (16 / 20 / 23-player scrims).
 export const SCRIM_SLOTS = ["16", "20", "23"];
-// Players needed for a full PUBG Mobile squad; reaching it posts a one-off alert.
+// Players needed for a full PUBG Mobile squad; a slot's button turns green at this count.
 export const SQUAD_SIZE = 4;
 const BUTTON_PREFIX = "scrim_avail";
 
@@ -122,40 +121,11 @@ export async function handleScrimButton(interaction) {
     await interaction.update(await renderScrimMessage(guildId, messageId, {
         title: titleRows[0]?.embed_title || "Scrim Availability",
     }));
-
-    if (!existing.length) {
-        await announceFullSquad(interaction, messageId, slot);
-    }
 }
 
-// Posts "16 has a full squad" the first time a slot reaches SQUAD_SIZE players.
-// scrim_slot_alerts remembers which slots were announced, so leaving and rejoining
-// (or a bot restart) never posts it twice for the same message.
-async function announceFullSquad(interaction, messageId, slot) {
-    try {
-        const players = (await playersBySlot(messageId))[slot];
-        if (players.length < SQUAD_SIZE) return;
-
-        const [result] = await executeQuery(
-            `INSERT IGNORE INTO scrim_slot_alerts (message_id, slot) VALUES (?, ?)`,
-            [messageId, slot]
-        );
-        if (result?.affectedRows !== 1) return;
-
-        const names = players.map(name => cleanPlayerName(name)).join(", ");
-        await interaction.channel?.send({
-            content: `🎯 **${slot}** has a full squad! ${names}`,
-            allowedMentions: { parse: [] },
-        });
-    } catch (error) {
-        console.error(`Failed to post full-squad alert for slot ${slot} on message ${messageId}:`, error);
-    }
-}
-
-// Remove stored availability (and squad alerts) for a message, used when a fresh
-// embed replaces an old one so the tables don't grow without bound.
+// Remove stored availability for a message, used when a fresh embed replaces an
+// old one so the table doesn't grow without bound.
 export async function clearScrimAvailability(messageId) {
     if (!messageId) return;
     await executeQuery(`DELETE FROM scrim_availability WHERE message_id = ?`, [messageId]);
-    await executeQuery(`DELETE FROM scrim_slot_alerts WHERE message_id = ?`, [messageId]);
 }

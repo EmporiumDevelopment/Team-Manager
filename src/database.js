@@ -352,15 +352,6 @@ async function initializeDatabase() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
 
-        // Scrim slots that already had their one-off "full squad" alert posted.
-        await db.execute(`
-            CREATE TABLE IF NOT EXISTS scrim_slot_alerts (
-                message_id VARCHAR(255) NOT NULL,
-                slot VARCHAR(10) NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (message_id, slot)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        `);
 
         // Activity seasons: /activity reset archives the leaderboard here before
         // clearing player_activity.
