@@ -24,8 +24,8 @@ export async function resolveScrimTeamByMessageId(guildId, messageId) {
     return null;
 }
 
-// Build the row of availability buttons. Each label shows how many players have
-// signed up for that slot, e.g. "16 (3)".
+// Build the row of availability buttons. Labels show only the slot; player
+// counts live in the embed.
 export function buildScrimComponents(counts = {}) {
     const row = new ActionRowBuilder();
     for (const slot of SCRIM_SLOTS) {
@@ -33,7 +33,7 @@ export function buildScrimComponents(counts = {}) {
         row.addComponents(
             new ButtonBuilder()
                 .setCustomId(`${BUTTON_PREFIX}:${slot}`)
-                .setLabel(count ? `${slot} (${count})` : slot)
+                .setLabel(slot)
                 .setStyle(count >= SQUAD_SIZE ? ButtonStyle.Success : ButtonStyle.Primary)
         );
     }
