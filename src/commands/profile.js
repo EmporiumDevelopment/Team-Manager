@@ -1,12 +1,12 @@
 import { SlashCommandBuilder, MessageFlags } from "discord.js";
 import { safeReply } from "../utils/interactionReply.js";
 import { getProfile, getProfileStats, buildProfileEmbed } from "../utils/playerProfiles.js";
-import { canViewOthers, editableFields, editButtonRow, renderEditor } from "../utils/profileEditor.js";
+import { canViewOthers, editableFields, editButtonRow } from "../utils/profileEditor.js";
 
 // /profile                     -> your own profile
 // /profile player:@x           -> someone else's (admins and roster players only)
-// /profile edit:True           -> open the editor (admins: any profile, all fields;
-//                                 players: their own profile, name only)
+// The card's Edit button opens the editor (admins: any profile, all fields;
+// players: their own profile, name only)
 export default {
     data: new SlashCommandBuilder()
         .setName("profile")
@@ -14,11 +14,6 @@ export default {
         .addUserOption(option =>
             option.setName("player")
                 .setDescription("The player whose profile you want to see")
-                .setRequired(false)
-        )
-        .addBooleanOption(option =>
-            option.setName("edit")
-                .setDescription("Open the profile editor (admins: any profile; players: your own name)")
                 .setRequired(false)
         ),
 
@@ -30,7 +25,6 @@ export default {
         const guildId = interaction.guild.id;
         const viewer = interaction.user;
         const target = interaction.options.getUser("player") || viewer;
-        const wantsEdit = interaction.options.getBoolean("edit") === true;
         const isSelf = target.id === viewer.id;
 
         try {
@@ -50,17 +44,6 @@ export default {
             }
 
             const fields = editableFields(interaction.member, viewer.id, target.id);
-
-            if (wantsEdit) {
-                if (fields.length === 0) {
-                    return interaction.reply({
-                        content: "Only admins can edit other players' profiles. You can edit your own name with `/profile edit:True`.",
-                        flags: MessageFlags.Ephemeral,
-                    });
-                }
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-                return interaction.editReply(await renderEditor(interaction.guild, interaction.member, viewer.id, target.id));
-            }
 
             await interaction.deferReply();
             const stats = await getProfileStats(guildId, target.id);
