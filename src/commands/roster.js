@@ -5,7 +5,7 @@ import COLOUR_VALUES from "../utils/colourMap.js";
 
 import path from "path";
 import { safeReply } from "../utils/interactionReply.js";
-import { cleanPlayerName } from "../utils/playerNames.js";
+import { cleanPlayerName, withTeamTag } from "../utils/playerNames.js";
 import { upsertProfile, syncProfileField, markProfilesFormer } from "../utils/playerProfiles.js";
 
 // Profile writes must never break the roster action itself.
@@ -426,7 +426,7 @@ export default {
                 const rolePlayers = rosterPlayers.filter(p => p.member_level === role);
                 if (rolePlayers.length > 0) {
                     description += `\n\n${roles[role]}\n`;
-                    description += rolePlayers.map(player => ` ${roleEmojis[role]} | ${player.flag_emoji} | ${player.player_name}`).join('\n') + '\n';
+                    description += rolePlayers.map(player => ` ${roleEmojis[role]} | ${player.flag_emoji} | ${withTeamTag(player.player_name)}`).join('\n') + '\n';
                 }
             }
 

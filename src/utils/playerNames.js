@@ -12,6 +12,14 @@ export function cleanPlayerName(name) {
     return isAllCaps ? stripped.charAt(0) + stripped.slice(1).toLowerCase() : stripped;
 }
 
+// Name as shown on the roster: always starts with the team tag, never doubled.
+// "Tetro" -> "6pmTetro", "6pmTetro" / "6PMTetro" / "6pm Tetro" -> kept as written.
+export function withTeamTag(name) {
+    const trimmed = String(name ?? "").trim();
+    if (!trimmed) return trimmed;
+    return trimmed.toLowerCase().startsWith(TEAM_NAME_PREFIX.toLowerCase()) ? trimmed : `${TEAM_NAME_PREFIX}${trimmed}`;
+}
+
 // Resolves user IDs to readable names for log messages. Mentions inside embeds show
 // as raw <@id> when the viewer's client hasn't cached that user, so logs use plain
 // names instead: roster name first, then server nickname, then username.
