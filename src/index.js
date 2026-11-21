@@ -12,6 +12,7 @@ import { executeQuery } from './database.js';
 import "./utils/schedule/scheduleTasks.js"
 import { isScheduleButton, handleScheduleButton } from './utils/schedule/scheduleAvailability.js';
 import { isProfileInteraction, handleProfileInteraction } from './utils/profileEditor.js';
+import { isAnnouncementInteraction, handleAnnouncementInteraction } from './utils/announcementComposer.js';
 import { safeReply } from './utils/interactionReply.js';
 
 dotenv.config({ path: './src/.env' });
@@ -122,6 +123,17 @@ client.on(Events.InteractionCreate, async interaction => {
         } catch (error) {
             console.error("Error handling profile editor interaction:", error);
             return safeReply(interaction, "Something went wrong while editing this profile.");
+        }
+    }
+
+    // Announcement composer: its buttons, channel/role/colour menus and pop-up forms
+    if ((interaction.isMessageComponent() || interaction.isModalSubmit())
+        && isAnnouncementInteraction(interaction.customId)) {
+        try {
+            return await handleAnnouncementInteraction(interaction);
+        } catch (error) {
+            console.error("Error handling announcement composer interaction:", error);
+            return safeReply(interaction, "Something went wrong in the announcement composer.");
         }
     }
 });
