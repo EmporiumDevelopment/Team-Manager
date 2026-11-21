@@ -174,7 +174,7 @@ export function buildProfileEmbed(profile, stats, user) {
     if (joinedUnix) infoLines.push(`Joined: <t:${joinedUnix}:D>`);
     if (isFormer && leftUnix) infoLines.push(`Left: <t:${leftUnix}:D>`);
 
-    const { season, allTime, tournaments: t, scheduled } = stats;
+    const { allTime, tournaments: t, scheduled } = stats;
     const tournamentLines = [
         `Events: **${t.events}**`,
         `Best Placement: **${t.bestResult ? ordinal(t.bestResult) : "—"}**`,
@@ -188,18 +188,15 @@ export function buildProfileEmbed(profile, stats, user) {
         if (scheduled.byTeam[team]) scheduleLines.push(`${label}: **${scheduled.byTeam[team]}**`);
     }
 
-    const spacer = { name: "​", value: "​", inline: true };
     const embed = new EmbedBuilder()
         .setTitle(`${profile.flag_emoji ? `${profile.flag_emoji} ` : ""}${name}`)
         .setColor(isFormer ? 0x808080 : 0xFFFFFF)
         .setDescription(infoLines.join("\n"))
         .addFields(
-            { name: "Current Season", value: `${record(season)}\nPoints: **${season.points}**`, inline: true },
-            { name: `All Time${allTime.seasons ? ` (${allTime.seasons + 1} seasons)` : ""}`, value: `${record(allTime)}\nPoints: **${allTime.points}**`, inline: true },
-            spacer,
+            // Stats = every season combined (archived seasons + the current one).
+            { name: "Stats", value: `${record(allTime)}\nPoints: **${allTime.points}**`, inline: true },
             { name: "Tournaments", value: tournamentLines.join("\n"), inline: true },
             { name: "Scheduled Events", value: scheduleLines.join("\n"), inline: true },
-            spacer,
         )
         .setFooter({ text: "Player Profile" })
         .setTimestamp();
