@@ -1,20 +1,34 @@
 import { SlashCommandBuilder, MessageFlags } from "discord.js";
 import { safeReply } from "../utils/interactionReply.js";
 import { getProfile, getProfileStats, buildProfileEmbed } from "../utils/playerProfiles.js";
-import { canViewOthers, editableFields, editButtonRow } from "../utils/profileEditor.js";
+import { canViewOthers, editableFields, editButtonRow, renderEditor } from "../utils/profileEditor.js";
 
-// /profile                     -> your own profile
-// /profile player:@x           -> someone else's (admins and roster players only)
-// The card's Edit button opens the editor (admins: any profile, all fields;
-// players: their own profile, name only)
+// /profile view                -> your own profile
+// /profile view player:@x      -> someone else's (admins and roster players only)
+// /profile edit                -> open the editor for your own profile (name only, unless admin)
+// /profile edit player:@x      -> open the editor for someone else's profile (admins only)
+// The card's Edit button opens the same editor.
 export default {
     data: new SlashCommandBuilder()
         .setName("profile")
-        .setDescription("View a player profile (yours by default)")
-        .addUserOption(option =>
-            option.setName("player")
-                .setDescription("The player whose profile you want to see")
-                .setRequired(false)
+        .setDescription("View or edit a player profile")
+        .addSubcommand(sub =>
+            sub.setName("view")
+                .setDescription("View a player profile (yours by default)")
+                .addUserOption(option =>
+                    option.setName("player")
+                        .setDescription("The player whose profile you want to see")
+                        .setRequired(false)
+                )
+        )
+        .addSubcommand(sub =>
+            sub.setName("edit")
+                .setDescription("Edit a player profile (admins: any profile; players: your own name)")
+                .addUserOption(option =>
+                    option.setName("player")
+                        .setDescription("The player whose profile you want to edit")
+                        .setRequired(false)
+                )
         ),
 
     async execute(interaction) {
@@ -25,6 +39,7 @@ export default {
         const guildId = interaction.guild.id;
         const viewer = interaction.user;
         const target = interaction.options.getUser("player") || viewer;
+        const wantsEdit = interaction.options.getSubcommand() === "edit";
         const isSelf = target.id === viewer.id;
 
         try {
@@ -44,6 +59,17 @@ export default {
             }
 
             const fields = editableFields(interaction.member, viewer.id, target.id);
+
+            if (wantsEdit) {
+                if (fields.length === 0) {
+                    return interaction.reply({
+                        content: "Only admins can edit other players' profiles. You can edit your own name with `/profile edit`.",
+                        flags: MessageFlags.Ephemeral,
+                    });
+                }
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                return interaction.editReply(await renderEditor(interaction.guild, interaction.member, viewer.id, target.id));
+            }
 
             await interaction.deferReply();
             const stats = await getProfileStats(guildId, target.id);
