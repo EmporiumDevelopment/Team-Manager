@@ -250,7 +250,7 @@ const button = (action, label, emoji, style = ButtonStyle.Secondary) =>
 function mainRows(draft) {
     const channelMenu = new ChannelSelectMenuBuilder()
         .setCustomId(`${PREFIX}:channel`)
-        .setPlaceholder("Choose the channel to post in")
+        .setPlaceholder("Choose the channel to post in (type to search)")
         .setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
         .setMinValues(1)
         .setMaxValues(1);
@@ -276,6 +276,10 @@ function mainRows(draft) {
             button("help", "Formatting", "❓"),
         ),
         new ActionRowBuilder().addComponents(
+            // Channels with fancy-font names (e.g. "ᴀᴅᴍɪɴ-ᴄʜᴀᴛ") can't be found by typing in
+            // the menu above, so offer the channel the command was run in directly.
+            button("usehere", "This channel", "📍")
+                .setDisabled(!draft.originChannelId || draft.originChannelId === draft.channelId),
             button("timestamp", draft.timestamp ? "Timestamp: on" : "Timestamp: off", "🕒"),
             button("send", "Send", "📤", ButtonStyle.Success).setDisabled(!ready),
             button("reset", "Start over", "🗑️", ButtonStyle.Danger),
@@ -477,6 +481,7 @@ export function isAnnouncementInteraction(customId) {
 export async function openComposer(interaction) {
     const existing = getDraft(interaction.guild.id, interaction.user.id);
     const draft = existing ?? saveDraft(interaction.guild.id, interaction.user.id, newDraft());
+    draft.originChannelId = interaction.channelId ?? null;
     const notice = existing && hasContent(existing) ? "-# ↩️ Restored your unsent draft. Press **🗑️ Start over** for a blank one." : null;
     const payload = renderComposer(draft, { notice });
     return interaction.reply({ ...payload, flags: payload.flags | MessageFlags.Ephemeral });
@@ -494,7 +499,7 @@ export async function handleAnnouncementInteraction(interaction) {
 
     // "Write another" after sending: the old draft is gone, so start a fresh one.
     if (prefix === PREFIX && action === "new") {
-        const fresh = saveDraft(guildId, userId, newDraft());
+        const fresh = saveDraft(guildId, userId, { ...newDraft(), originChannelId: interaction.channelId ?? null });
         return interaction.update(renderComposer(fresh));
     }
 
@@ -530,6 +535,8 @@ export async function handleAnnouncementInteraction(interaction) {
     switch (action) {
         case "channel":
             return redraw({ channelId: interaction.values?.[0] ?? null });
+        case "usehere":
+            return redraw(draft.originChannelId ? { channelId: draft.originChannelId } : {});
         case "colour": {
             const value = interaction.values?.[0];
             const known = COLOURS.some(c => c.value === value) || value === draft.colour;
