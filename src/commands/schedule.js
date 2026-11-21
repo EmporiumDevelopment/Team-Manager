@@ -2,6 +2,7 @@ import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from "discord.js";
 import { executeQuery } from "../database.js";
 import { sendLogEmbed } from "../utils/logger.js";
 import COLOUR_VALUES from "../utils/colourMap.js"
+import { recordEventAttendance } from "../utils/playerProfiles.js";
 import { announceTodaysEvents, eventUnix, parseEventDate, parseEventTime, refreshScheduleEmbed, resolveEventByPosition } from "../utils/schedule/scheduleUtils.js";
 
 export default {
@@ -870,6 +871,16 @@ export default {
 
             // if new status is complete remove it completely
             if (status === "completed") {
+
+                // record who played it on their player profiles before the row is deleted
+                const [fullEvent] = await executeQuery(`
+                    SELECT id, event_name, event_date, participants, status
+                    FROM ${team}_schedule WHERE id = ? AND guild_id = ?
+                `, [event.id, guildId]);
+                if (fullEvent) {
+                    await recordEventAttendance(guildId, team, [fullEvent])
+                        .catch(error => console.error("Failed to record event attendance:", error));
+                }
 
                 // remove from database
                 await executeQuery(`

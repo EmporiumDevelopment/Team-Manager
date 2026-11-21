@@ -3,6 +3,7 @@ import COLOUR_VALUES from "../../utils/colourMap.js";
 import { sendLogEmbed } from "../../utils/logger.js";
 import roster from "../../commands/roster.js";
 import { cleanPlayerName } from "../../utils/playerNames.js";
+import { markProfilesFormer } from "../../utils/playerProfiles.js";
 
 export async function handleMemberLeave(member) {
 
@@ -21,6 +22,10 @@ export async function handleMemberLeave(member) {
     await executeQuery(`
         DELETE FROM roster WHERE guild_id = ? AND discord_id = ?
     `, [member.guild.id, member.id]);
+
+    // keep their player profile, marked as a former player
+    await markProfilesFormer(member.guild.id, [member.id])
+        .catch(error => console.error("Player profile update failed (member leave):", error));
 
     // log the member's departure
     await sendLogEmbed(

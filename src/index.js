@@ -11,6 +11,8 @@ import { sendLogEmbed } from './utils/logger.js';
 import { executeQuery } from './database.js';
 import "./utils/schedule/scheduleTasks.js"
 import { isScheduleButton, handleScheduleButton } from './utils/schedule/scheduleAvailability.js';
+import { isProfileInteraction, handleProfileInteraction } from './utils/profileEditor.js';
+import { safeReply } from './utils/interactionReply.js';
 
 dotenv.config({ path: './src/.env' });
 
@@ -109,6 +111,17 @@ client.on(Events.InteractionCreate, async interaction => {
             if (isPageButton(interaction.customId)) return await handlePageButton(interaction);
         } catch (error) {
             console.error("Error handling button interaction:", error);
+        }
+    }
+
+    // Profile editor: its buttons, rank menu and pop-up forms
+    if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit())
+        && isProfileInteraction(interaction.customId)) {
+        try {
+            return await handleProfileInteraction(interaction);
+        } catch (error) {
+            console.error("Error handling profile editor interaction:", error);
+            return safeReply(interaction, "Something went wrong while editing this profile.");
         }
     }
 });

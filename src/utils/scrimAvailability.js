@@ -1,5 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } from "discord.js";
 import { executeQuery } from "../database.js";
+import { getPlayerNames } from "./playerNames.js";
 
 // Scrim "slots" are the player-count modes (16 / 20 / 23-player scrims).
 export const SCRIM_SLOTS = ["16", "20", "23"];
@@ -82,8 +83,9 @@ export async function handleScrimButton(interaction) {
     const guildId = interaction.guildId;
     const messageId = interaction.message.id;
     const userId = interaction.user.id;
-    // Server nickname if set, else global display name, else username.
-    const displayName = interaction.member?.displayName || interaction.user.displayName || interaction.user.username;
+    // Player profile name if they have one, else server nickname / display name.
+    const displayName = (await getPlayerNames(interaction.guild, [userId])).get(userId)
+        || interaction.member?.displayName || interaction.user.displayName || interaction.user.username;
 
     const team = await resolveScrimTeamByMessageId(guildId, messageId);
     if (!team) {

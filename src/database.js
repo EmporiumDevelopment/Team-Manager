@@ -404,6 +404,47 @@ async function initializeDatabase() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
 
+        // Player profiles: created by /roster add and kept (status 'former') when a
+        // player leaves the roster, so their history survives. Stats are not stored
+        // here; they are computed from player_activity, the season archive, earnings
+        // and player_event_history (see src/utils/playerProfiles.js).
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS player_profiles (
+                guild_id VARCHAR(255) NOT NULL,
+                discord_id VARCHAR(30) NOT NULL,
+                player_name VARCHAR(255) DEFAULT NULL,
+                flag_emoji VARCHAR(50) DEFAULT '',
+                member_level ENUM('owner', 'leader', 'elite', 'member') DEFAULT 'member',
+                status ENUM('active', 'former') DEFAULT 'active',
+                joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                left_at DATETIME DEFAULT NULL,
+                PRIMARY KEY (guild_id, discord_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        `);
+
+        // Schedule events are deleted once completed or past, so confirmed players
+        // are copied here first. One row per (event, player).
+        await db.execute(`
+            CREATE TABLE IF NOT EXISTS player_event_history (
+                guild_id VARCHAR(255) NOT NULL,
+                team ENUM('mixed', 'female', 'clan') NOT NULL,
+                event_id INT NOT NULL,
+                user_id VARCHAR(30) NOT NULL,
+                event_name VARCHAR(255) DEFAULT NULL,
+                event_date DATE DEFAULT NULL,
+                recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (guild_id, team, event_id, user_id),
+                INDEX idx_event_history_user (guild_id, user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        `);
+
+        // Backfill: every current roster player gets a profile (no-op once done).
+        await db.execute(`
+            INSERT IGNORE INTO player_profiles (guild_id, discord_id, player_name, flag_emoji, member_level)
+            SELECT guild_id, discord_id, player_name, flag_emoji, member_level
+            FROM roster WHERE discord_id IS NOT NULL;
+        `);
+
     } catch (error) {
         console.error("Database connection failed:", error);
         process.exit(1);

@@ -20,13 +20,19 @@ export async function getPlayerNames(guild, userIds) {
     const names = new Map();
     if (ids.length === 0) return names;
 
-    const rows = await executeQuery(
-        `SELECT discord_id, player_name FROM roster WHERE guild_id = ? AND discord_id IN (${ids.map(() => "?").join(", ")})`,
-        [guild.id, ...ids]
-    ).catch(() => []);
-
-    for (const row of rows) {
-        if (row.player_name) names.set(String(row.discord_id), cleanPlayerName(row.player_name));
+    // Player profile name first (it is what players set with /profile and also
+    // covers former players), then the roster, then Discord names.
+    const placeholders = ids.map(() => "?").join(", ");
+    for (const table of ["player_profiles", "roster"]) {
+        if (ids.every(id => names.has(id))) break;
+        const rows = await executeQuery(
+            `SELECT discord_id, player_name FROM ${table} WHERE guild_id = ? AND discord_id IN (${placeholders})`,
+            [guild.id, ...ids]
+        ).catch(() => []);
+        for (const row of rows) {
+            const id = String(row.discord_id);
+            if (row.player_name && !names.has(id)) names.set(id, cleanPlayerName(row.player_name));
+        }
     }
 
     for (const id of ids) {

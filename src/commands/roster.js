@@ -6,6 +6,11 @@ import COLOUR_VALUES from "../utils/colourMap.js";
 import path from "path";
 import { safeReply } from "../utils/interactionReply.js";
 import { cleanPlayerName } from "../utils/playerNames.js";
+import { upsertProfile, syncProfileField, markProfilesFormer } from "../utils/playerProfiles.js";
+
+// Profile writes must never break the roster action itself.
+const profileSafe = (label, promise) =>
+    promise.catch(error => console.error(`Player profile update failed (${label}):`, error));
 
 const imagePath = path.resolve("src", "assets", "roster_image.jpg");
 const imageAttachment = new AttachmentBuilder(imagePath);
@@ -287,7 +292,10 @@ export default {
                     VALUES (?, ?, ?, ?, ?) 
                     ON DUPLICATE KEY UPDATE player_name = VALUES(player_name), member_level = VALUES(member_level), flag_emoji = VALUES(flag_emoji);
                 `, [user.id, guildId, playerName, level, emoji]);
-        
+
+                // Create their player profile (or reactivate a former one)
+                await profileSafe("add", upsertProfile(guildId, user.id, { playerName, flagEmoji: emoji, memberLevel: level }));
+
                 // Log the addition
                 await sendLogEmbed(
                     guildId, 
@@ -368,7 +376,10 @@ export default {
                 await executeQuery(`
                     DELETE FROM roster WHERE discord_id = ? AND guild_id = ?
                 `, [user.id, guildId]);
-        
+
+                // Keep their profile and history, marked as a former player
+                await profileSafe("remove", markProfilesFormer(guildId, [user.id]));
+
                 // Log the removal
                 await sendLogEmbed(
                     guildId, 
@@ -592,6 +603,8 @@ export default {
                 await executeQuery(`
                     UPDATE roster SET ${field} = ? WHERE discord_id = ? AND guild_id = ?
                 `, [storedValue, user.id, guildId]);
+
+                await profileSafe("edit", syncProfileField(guildId, user.id, field, storedValue));
 
                 // A level change also swaps their Discord role (previously only the
                 // roster text changed, leaving the old role in place).
@@ -928,6 +941,8 @@ export default {
                     `DELETE FROM roster WHERE guild_id = ? AND discord_id IN (${placeholders})`,
                     [guildId, ...ids]
                 );
+
+                await profileSafe("cleanup", markProfilesFormer(guildId, ids));
 
                 const removedList = removed.map(r => cleanPlayerName(r.name) || r.id).join('\n');
                 await sendLogEmbed(

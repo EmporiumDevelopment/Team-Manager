@@ -1,6 +1,7 @@
 import { executeQuery } from "../../database.js";
 import { EmbedBuilder } from "discord.js";
 import { londonToday, refreshScheduleEmbed } from "./scheduleUtils.js";
+import { recordEventAttendance } from "../playerProfiles.js";
 
 // Removes completed events and any event whose date has passed (UK time), marks
 // their announcement embeds as finished, then refreshes the schedule embed.
@@ -11,7 +12,8 @@ async function cleanupCompletedEvents(client, guild, team) {
     const guildId = guild.id;
 
     const finishedEvents = await executeQuery(`
-        SELECT s.id, s.announcement_message_id, ss.announcements_channel_id
+        SELECT s.id, s.announcement_message_id, ss.announcements_channel_id,
+               s.event_name, s.event_date, s.participants, s.status
         FROM ${team}_schedule s
         LEFT JOIN ${team}_schedule_settings ss ON s.guild_id = ss.guild_id
         WHERE s.guild_id = ? AND (s.status = 'completed' OR s.event_date < ?);
@@ -38,6 +40,11 @@ async function cleanupCompletedEvents(client, guild, team) {
             console.log(`Failed to update embed for event ${event.announcement_message_id} in guild ${guildId}:`, error);
         }
     }
+
+    // Copy confirmed players onto their profiles before the events are deleted
+    // (cancelled events are skipped inside recordEventAttendance).
+    await recordEventAttendance(guildId, team, finishedEvents)
+        .catch(error => console.error(`Failed to record ${team} event attendance for guild ${guildId}:`, error));
 
     const ids = finishedEvents.map(e => e.id);
     await executeQuery(
