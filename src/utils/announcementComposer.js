@@ -44,6 +44,94 @@ export const COLOURS = [
     { value: "none", label: "No colour bar", emoji: "🚫" },
 ];
 
+// ---------- colour picker (HSL) ----------
+// Discord has no colour-wheel component, so the picker is built from menus (hue, shade,
+// intensity) and nudge buttons. The draft keeps the HSL values it was built from, so
+// greys don't lose their hue and repeated nudges don't drift from rounding.
+
+const HUE_NAMES = [
+    "Red", "Vermilion", "Orange", "Amber", "Yellow", "Lime", "Chartreuse", "Leaf green",
+    "Green", "Emerald", "Spring green", "Mint", "Cyan", "Sky blue", "Azure", "Cobalt",
+    "Blue", "Indigo", "Violet", "Purple", "Magenta", "Fuchsia", "Rose", "Crimson",
+];
+export const HUES = HUE_NAMES.map((label, i) => ({ value: i * 15, label }));
+export const SHADES = [
+    { value: 92, label: "Pale" }, { value: 82, label: "Very light" }, { value: 72, label: "Light" },
+    { value: 62, label: "Bright" }, { value: 50, label: "Pure" }, { value: 40, label: "Deep" },
+    { value: 30, label: "Dark" }, { value: 20, label: "Very dark" }, { value: 10, label: "Almost black" },
+];
+export const INTENSITIES = [
+    { value: 100, label: "Vivid" }, { value: 85, label: "Rich" }, { value: 70, label: "Soft" },
+    { value: 50, label: "Muted" }, { value: 30, label: "Dusty" }, { value: 12, label: "Greyish" }, { value: 0, label: "Grey" },
+];
+const DEFAULT_HSL = { h: 235, s: 86, l: 65 }; // Discord blurple
+
+const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
+const nearest = (list, value, distance = (a, b) => Math.abs(a - b)) =>
+    list.reduce((best, item) => (distance(item.value, value) < distance(best.value, value) ? item : best));
+const hueDistance = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+
+export function hexToHsl(hex) {
+    const n = parseInt(hex, 16);
+    const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    let h = 0, s = 0;
+    if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+        else if (max === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h *= 60;
+    }
+    return { h: Math.round(h) % 360, s: Math.round(s * 100), l: Math.round(l * 100) };
+}
+
+export function hslToHex({ h, s, l }) {
+    const sat = s / 100, light = l / 100;
+    const a = sat * Math.min(light, 1 - light);
+    const channel = n => {
+        const k = (n + h / 30) % 12;
+        return light - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    };
+    return [channel(0), channel(8), channel(4)]
+        .map(x => Math.round(x * 255).toString(16).padStart(2, "0"))
+        .join("")
+        .toUpperCase();
+}
+
+function colourEmoji({ h, s, l }) {
+    if (l <= 15) return "⬛";
+    if (l >= 92 || s <= 12) return l >= 55 ? "⬜" : "⬛";
+    if (h >= 15 && h < 45 && l <= 35) return "🟫";
+    if (h < 15 || h >= 345) return "🟥";
+    if (h < 45) return "🟧";
+    if (h < 70) return "🟨";
+    if (h < 165) return "🟩";
+    if (h < 260) return "🟦";
+    if (h < 330) return "🟪";
+    return "🟥";
+}
+
+// The picker's current HSL: the stored one, else derived from the colour, else blurple.
+export function pickerHsl(draft) {
+    if (draft.hsl) return draft.hsl;
+    if (draft.colour && draft.colour !== "none") return hexToHsl(draft.colour);
+    return DEFAULT_HSL;
+}
+
+// Changes for the draft when the picker moves to a new HSL.
+export function fromHsl(hsl) {
+    const next = { h: ((Math.round(hsl.h) % 360) + 360) % 360, s: clamp(Math.round(hsl.s), 0, 100), l: clamp(Math.round(hsl.l), 0, 100) };
+    return { hsl: next, colour: hslToHex(next) };
+}
+
+// Changes for the draft when the colour is set directly (preset or hex code).
+function fromHex(colour) {
+    return { colour, hsl: colour === "none" ? null : hexToHsl(colour) };
+}
+
 const FORMATTING_HELP = [
     "**Formatting you can use in the title, message and footer**",
     "`**bold**` → **bold** · `*italic*` → *italic* · `__underline__` → __underline__",
@@ -73,6 +161,7 @@ export function newDraft() {
         body: "",
         footer: "",
         colour: "5865F2",
+        hsl: null,
         banner: "",
         thumbnail: "",
         gallery: [],
@@ -258,7 +347,8 @@ function mainRows(draft) {
 
     const isPreset = COLOURS.some(c => c.value === draft.colour);
     const colourOptions = COLOURS.map(c => ({ label: c.label, value: c.value, emoji: c.emoji, default: c.value === draft.colour }));
-    if (!isPreset) colourOptions.unshift({ label: `Custom #${draft.colour}`, value: draft.colour, emoji: "🎨", default: true });
+    if (!isPreset) colourOptions.unshift({ label: `Custom #${draft.colour}`, value: draft.colour, emoji: colourEmoji(pickerHsl(draft)), default: true });
+    colourOptions.push({ label: "Colour picker…", value: "picker", emoji: "🎨", description: "Pick any colour, or type a hex code" });
     const colourMenu = new StringSelectMenuBuilder()
         .setCustomId(`${PREFIX}:colour`)
         .setPlaceholder("Colour bar")
@@ -270,7 +360,7 @@ function mainRows(draft) {
         new ActionRowBuilder().addComponents(colourMenu),
         new ActionRowBuilder().addComponents(
             button("text", "Text", "✏️", ButtonStyle.Primary),
-            button("style", "Images & colour", "🖼️", ButtonStyle.Primary),
+            button("style", "Images", "🖼️", ButtonStyle.Primary),
             button("links", "Link buttons", "🔗", ButtonStyle.Primary),
             button("ping", "Ping", "🔔", ButtonStyle.Primary),
             button("help", "Formatting", "❓"),
@@ -306,6 +396,48 @@ function pingRows(draft) {
     ];
 }
 
+function pickerRows(draft) {
+    const hsl = pickerHsl(draft);
+    const hue = nearest(HUES, hsl.h, hueDistance).value;
+    const shade = nearest(SHADES, hsl.l).value;
+    const intensity = nearest(INTENSITIES, hsl.s).value;
+
+    // Each option shows the colour it would give with the other two settings kept.
+    const option = (item, value, preview) => ({
+        label: item.label,
+        value: String(item.value),
+        description: `#${hslToHex(preview)}`,
+        emoji: colourEmoji(preview),
+        default: item.value === value,
+    });
+    // Picking a hue on a grey/near-white/near-black colour would change nothing visible,
+    // so the hue menu previews (and applies) at least a soft, mid-range version.
+    const hueBase = { s: Math.max(hsl.s, 55), l: clamp(hsl.l, 25, 80) };
+
+    return [
+        new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
+            .setCustomId(`${PREFIX}:pickhue`).setPlaceholder("Hue")
+            .addOptions(HUES.map(item => option(item, hue, { h: item.value, ...hueBase })))),
+        new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
+            .setCustomId(`${PREFIX}:pickshade`).setPlaceholder("Shade")
+            .addOptions(SHADES.map(item => option(item, shade, { ...hsl, l: item.value })))),
+        new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
+            .setCustomId(`${PREFIX}:pickintensity`).setPlaceholder("Intensity")
+            .addOptions(INTENSITIES.map(item => option(item, intensity, { ...hsl, s: item.value })))),
+        new ActionRowBuilder().addComponents(
+            button("huedown", "Hue", "◀️"),
+            button("hueup", "Hue", "▶️"),
+            button("lighter", "Lighter", "☀️"),
+            button("darker", "Darker", "🌙"),
+            button("random", "Random", "🎲"),
+        ),
+        new ActionRowBuilder().addComponents(
+            button("hexcode", "Hex code", "#️⃣", ButtonStyle.Primary),
+            button("pickdone", "Done", "✅", ButtonStyle.Success),
+        ),
+    ];
+}
+
 export function renderComposer(draft, { notice, view = "main", now = new Date() } = {}) {
     const where = draft.channelId ? `<#${draft.channelId}>` : "**no channel chosen yet**";
     const ping = pingText(draft);
@@ -314,11 +446,27 @@ export function renderComposer(draft, { notice, view = "main", now = new Date() 
         `-# Posting to ${where}${ping ? ` · pings ${ping}` : ""} · Preview below, only you can see this.`,
     ];
     if (view === "ping") header.push("-# Pick roles to ping and toggle @everyone / @here. Pings appear just above the announcement.");
+    if (view === "picker") {
+        const { h, s, l } = pickerHsl(draft);
+        header.push(draft.colour === "none"
+            ? "🎨 **Colour picker:** 🚫 no colour bar. Pick a hue or press 🎲 Random to add one."
+            : `🎨 **Colour picker:** ${colourEmoji({ h, s, l })} **#${draft.colour}** · hue ${h}° · intensity ${s}% · lightness ${l}%`);
+        header.push("-# The bar on the left of the preview shows your colour. Use the menus to get close, then the buttons to fine-tune.");
+    }
     if (notice) header.push(notice);
+
+    // The composer's header shares Discord's 4000-character message limit with the
+    // preview, so a very long message is shortened in the preview only.
+    const headerText = header.join("\n");
+    const SHORTENED = "\n-# … preview shortened, the full message will be sent.";
+    const overflow = headerText.length + announcementTextLength(draft) + 100 - 4000;
+    const previewDraft = overflow > 0 && draft.body
+        ? { ...draft, body: draft.body.slice(0, Math.max(0, draft.body.length - overflow - SHORTENED.length)) + SHORTENED }
+        : draft;
 
     let preview;
     if (hasContent(draft)) {
-        preview = buildAnnouncement(draft, { now });
+        preview = buildAnnouncement(previewDraft, { now });
     } else {
         const placeholder = new ContainerBuilder().addTextDisplayComponents(
             text("*Your announcement preview shows up here.*\nUse **✏️ Text** to write a title and message, then pick a channel and press **📤 Send**.")
@@ -329,10 +477,10 @@ export function renderComposer(draft, { notice, view = "main", now = new Date() 
 
     return {
         components: [
-            text(header.join("\n")),
+            text(headerText),
             ...preview,
             new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Large),
-            ...(view === "ping" ? pingRows(draft) : mainRows(draft)),
+            ...(view === "ping" ? pingRows(draft) : view === "picker" ? pickerRows(draft) : mainRows(draft)),
         ],
         flags: MessageFlags.IsComponentsV2,
         allowedMentions: { parse: [] },
@@ -358,11 +506,15 @@ export function buildModal(form, draft) {
         );
     }
     if (form === "style") {
-        return modal.setTitle("Images & colour").addComponents(
+        return modal.setTitle("Images").addComponents(
             input("banner", "Banner image link (wide, at the top)", TextInputStyle.Short, { value: draft.banner, max: LIMITS.url, placeholder: "https://…/banner.png" }),
             input("thumbnail", "Thumbnail link (small, next to the title)", TextInputStyle.Short, { value: draft.thumbnail, max: LIMITS.url, placeholder: "https://…/logo.png" }),
             input("gallery", "Gallery image links (one per line, max 10)", TextInputStyle.Paragraph, { value: draft.gallery.join("\n"), max: 4000, placeholder: "https://…/one.png\nhttps://…/two.png" }),
-            input("colour", "Colour bar hex code (empty = none)", TextInputStyle.Short, { value: draft.colour === "none" ? "" : `#${draft.colour}`, max: 7, placeholder: "#5865F2" }),
+        );
+    }
+    if (form === "hex") {
+        return modal.setTitle("Colour hex code").addComponents(
+            input("colour", "Hex code (empty = no colour bar)", TextInputStyle.Short, { value: draft.colour === "none" ? "" : `#${draft.colour}`, max: 7, placeholder: "#5865F2" }),
         );
     }
     return modal.setTitle("Link buttons").addComponents(
@@ -390,11 +542,15 @@ export function applyForm(form, draft, values) {
         const banner = parseUrl(values.banner, "banner link");
         const thumbnail = parseUrl(values.thumbnail, "thumbnail link");
         const gallery = parseGallery(values.gallery);
-        const colour = parseColour(values.colour);
-        const error = [banner, thumbnail, gallery, colour].find(r => r.error)?.error;
+        const error = [banner, thumbnail, gallery].find(r => r.error)?.error;
         if (error) return { error };
-        Object.assign(next, { banner: banner.value, thumbnail: thumbnail.value, gallery: gallery.value, colour: colour.value });
+        Object.assign(next, { banner: banner.value, thumbnail: thumbnail.value, gallery: gallery.value });
         return { draft: next };
+    }
+    if (form === "hex") {
+        const colour = parseColour(values.colour);
+        if (colour.error) return { error: colour.error };
+        return { draft: Object.assign(next, fromHex(colour.value)) };
     }
     if (form === "links") {
         const links = parseLinks(values.links);
@@ -405,7 +561,7 @@ export function applyForm(form, draft, values) {
     return { error: "Unknown form." };
 }
 
-const FORM_FIELDS = { text: ["title", "body", "footer"], style: ["banner", "thumbnail", "gallery", "colour"], links: ["links"] };
+const FORM_FIELDS = { text: ["title", "body", "footer"], style: ["banner", "thumbnail", "gallery"], links: ["links"], hex: ["colour"] };
 
 // ---------- sending ----------
 
@@ -528,9 +684,14 @@ export async function handleAnnouncementInteraction(interaction) {
         else await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const values = Object.fromEntries(fields.map(id => [id, interaction.fields.getTextInputValue(id) ?? ""]));
         const result = applyForm(action, draft, values);
-        if (result.error) return redraw({}, { notice: `❌ ${result.error}` });
-        return redraw(result.draft, { notice: "✅ Updated." });
+        const view = action === "hex" ? "picker" : "main";
+        if (result.error) return redraw({}, { notice: `❌ ${result.error}`, view });
+        return redraw(result.draft, { notice: "✅ Updated.", view });
     }
+
+    // Colour picker: menus jump to a hue/shade/intensity, buttons nudge it.
+    const hsl = pickerHsl(draft);
+    const pick = changes => redraw(fromHsl({ ...hsl, ...changes }), { view: "picker" });
 
     switch (action) {
         case "channel":
@@ -539,9 +700,42 @@ export async function handleAnnouncementInteraction(interaction) {
             return redraw(draft.originChannelId ? { channelId: draft.originChannelId } : {});
         case "colour": {
             const value = interaction.values?.[0];
-            const known = COLOURS.some(c => c.value === value) || value === draft.colour;
-            return redraw(known ? { colour: value } : {});
+            // Opening the picker with no colour bar starts it from the last picked colour.
+            if (value === "picker") return redraw(draft.colour === "none" ? fromHsl(hsl) : {}, { view: "picker" });
+            if (value === draft.colour) return redraw();
+            return redraw(COLOURS.some(c => c.value === value) ? fromHex(value) : {});
         }
+        case "pickhue": {
+            const h = Number(interaction.values?.[0]);
+            if (!HUES.some(item => item.value === h)) return redraw({}, { view: "picker" });
+            return pick({ h, s: Math.max(hsl.s, 55), l: clamp(hsl.l, 25, 80) });
+        }
+        case "pickshade": {
+            const l = Number(interaction.values?.[0]);
+            return SHADES.some(item => item.value === l) ? pick({ l }) : redraw({}, { view: "picker" });
+        }
+        case "pickintensity": {
+            const s = Number(interaction.values?.[0]);
+            return INTENSITIES.some(item => item.value === s) ? pick({ s }) : redraw({}, { view: "picker" });
+        }
+        case "huedown":
+            return pick({ h: hsl.h - 5 });
+        case "hueup":
+            return pick({ h: hsl.h + 5 });
+        case "lighter":
+            return pick({ l: hsl.l + 4 });
+        case "darker":
+            return pick({ l: hsl.l - 4 });
+        case "random":
+            return pick({
+                h: Math.floor(Math.random() * 360),
+                s: 55 + Math.floor(Math.random() * 41),
+                l: 40 + Math.floor(Math.random() * 26),
+            });
+        case "pickdone":
+            return redraw();
+        case "hexcode":
+            return interaction.showModal(buildModal("hex", draft));
         case "text":
         case "style":
         case "links":
